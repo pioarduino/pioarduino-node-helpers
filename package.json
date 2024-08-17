@@ -1,7 +1,7 @@
 {
-  "name": "platformio-node-helpers",
-  "version": "11.2.0",
-  "description": "Collection of Node.JS helpers for PlatformIO",
+  "name": "pioarduino-node-helpers",
+  "version": "11.3.0",
+  "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
     "node": ">=14"
@@ -14,7 +14,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/platformio/platformio-node-helpers.git"
+    "url": "https://github.com/pioarduino/pioarduino-node-helpers.git"
   },
   "keywords": [
     "PlatformIO",
@@ -47,9 +47,9 @@
   ],
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/platformio/platformio-node-helpers/issues"
+    "url": "https://github.com/pioarduino/pioarduino-node-helpers/issues"
   },
-  "homepage": "https://platformio.org",
+  "homepage": "https://github.com/pioarduino",
   "dependencies": {
     "global-agent": "^3.0.0",
     "got": "^11.8.6",
