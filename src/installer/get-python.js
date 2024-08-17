@@ -171,7 +171,7 @@ export async function installPortablePython(destinationDir, options = undefined)
 async function getRegistryFile() {
   const systype = proc.getSysType();
   const data = await got(
-    'https://api.registry.platformio.org/v3/packages/platformio/tool/python-portable',
+    'https://github.com/pioarduino/python-portable/raw/main/python-portable.json',
     {
       timeout: 60 * 1000,
       retry: { limit: 5 },
