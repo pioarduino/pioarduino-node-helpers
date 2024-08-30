@@ -225,19 +225,19 @@ async function downloadRegistryFile(regfile, destinationDir, options = undefined
   if (options.predownloadedPackageDir) {
     archivePath = path.join(options.predownloadedPackageDir, regfile.name);
     if (
-      await fileExistsAndChecksumMatches(archivePath, (regfile.checksum || {}).sha256)
+      await fileExists(archivePath)
     ) {
       console.info('Using predownloaded package from ' + archivePath);
       return archivePath;
     }
   }
 
-  for await (const { url, checksum } of registryFileMirrorIterator(
+  for await (const { url } of registryFileMirrorIterator(
     regfile.download_url,
   )) {
     archivePath = path.join(destinationDir, regfile.name);
     // if already downloaded
-    if (await fileExistsAndChecksumMatches(archivePath, checksum)) {
+    if (await fileExists(archivePath)) {
       return archivePath;
     }
     const pipeline = promisify(stream.pipeline);
@@ -250,7 +250,7 @@ async function downloadRegistryFile(regfile, destinationDir, options = undefined
         }),
         fs.createWriteStream(archivePath),
       );
-      if (await fileExistsAndChecksumMatches(archivePath, checksum)) {
+      if (await fileExists(archivePath)) {
         return archivePath;
       }
     } catch (err) {
@@ -260,43 +260,24 @@ async function downloadRegistryFile(regfile, destinationDir, options = undefined
 }
 
 async function* registryFileMirrorIterator(downloadUrl) {
-  const visitedMirrors = [];
   while (true) {
     const response = await got.head(downloadUrl, {
+      timeout: 60 * 1000,
+      retry: { limit: 5 },
       https: {
         certificateAuthority: HTTPS_CA_CERTIFICATES,
       },
-      followRedirect: false,
-      throwHttpErrors: false,
-      timeout: 60 * 1000,
-      retry: { limit: 5 },
-      searchParams: visitedMirrors.length
-        ? { bypass: visitedMirrors.join(',') }
-        : undefined,
     });
-    const stopConditions = [
-      ![302, 307].includes(response.statusCode),
-      !response.headers.location,
-      !response.headers['x-pio-mirror'],
-      visitedMirrors.includes(response.headers['x-pio-mirror']),
-    ];
-    if (stopConditions.some((cond) => cond)) {
-      return;
-    }
-    visitedMirrors.push(response.headers['x-pio-mirror']);
     yield {
       url: response.headers.location,
-      checksum: response.headers['x-pio-content-sha256'],
     };
   }
 }
 
-async function fileExistsAndChecksumMatches(filePath, checksum) {
+async function fileExists(filePath) {
   try {
     await fs.promises.access(filePath);
-    if ((await calculateFileHashsum(filePath)) === checksum) {
-      return true;
-    }
+    return true;
     await fs.promises.unlink(filePath);
   } catch (err) {}
   return false;
