@@ -14,13 +14,13 @@ import * as proc from './proc';
 import { ProjectTasks, TaskItem } from './project/tasks';
 
 import BaseStage from './installer/stages/base';
-import PlatformIOCoreStage from './installer/stages/platformio-core';
 import ProjectConfig from './project/config';
 import ProjectPool from './project/pool';
+import pioarduinoCoreStage from './installer/stages/pioarduino-core';
 
 const installer = {
   BaseStage,
-  PlatformIOCoreStage,
+  pioarduinoCoreStage,
 };
 
 const project = {
