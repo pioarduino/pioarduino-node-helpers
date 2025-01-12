@@ -1,6 +1,6 @@
 {
   "name": "pioarduino-node-helpers",
-  "version": "11.3.3",
+  "version": "11.3.4",
   "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
