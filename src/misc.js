@@ -80,7 +80,7 @@ export function getErrorReportUrl(title, description) {
     ['platformio-ide.useBuiltinPIOCore', 'https://bit.ly/3AhJHHe'],
     ['Could not start PIO Home server: Timeout error', 'https://bit.ly/3m2Tbl9'],
     ['Could not create PIO Core Virtual Environment', 'https://bit.ly/43hNh04'],
-    ['Compatible PlatformIO Core not found', 'https://bit.ly/43tNj4C'],
+    ['Compatible pioarduino Core not found', 'https://bit.ly/43tNj4C'],
     [
       'Could not find a version that satisfies the requirement',
       'https://bit.ly/3TOcnBK',

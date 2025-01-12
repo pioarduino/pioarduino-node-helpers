@@ -10,8 +10,7 @@ import * as core from '../core';
 import * as proc from '../proc';
 import * as tar from 'tar';
 
-import { callInstallerScript } from './get-platformio';
-import crypto from 'crypto';
+import { callInstallerScript } from './get-pioarduino';
 import fs from 'fs';
 import got from 'got';
 import os from 'os';
@@ -169,7 +168,7 @@ export async function installPortablePython(destinationDir, options = undefined)
 async function getRegistryFile() {
   const systype = proc.getSysType();
   const data = await got(
-    'https://api.registry.platformio.org/v3/packages/platformio/tool/python-portable',
+    'https://github.com/pioarduino/python-portable/releases/download/v3.11.7/python-portable.json',
     {
       timeout: 60 * 1000,
       retry: { limit: 5 },
@@ -222,20 +221,16 @@ async function downloadRegistryFile(regfile, destinationDir, options = undefined
 
   if (options.predownloadedPackageDir) {
     archivePath = path.join(options.predownloadedPackageDir, regfile.name);
-    if (
-      await fileExistsAndChecksumMatches(archivePath, (regfile.checksum || {}).sha256)
-    ) {
+    if (await fileExists(archivePath)) {
       console.info('Using predownloaded package from ' + archivePath);
       return archivePath;
     }
   }
 
-  for await (const { url, checksum } of registryFileMirrorIterator(
-    regfile.download_url,
-  )) {
+  for await (const { url } of registryFileMirrorIterator(regfile.download_url)) {
     archivePath = path.join(destinationDir, regfile.name);
     // if already downloaded
-    if (await fileExistsAndChecksumMatches(archivePath, checksum)) {
+    if (await fileExists(archivePath)) {
       return archivePath;
     }
     const pipeline = promisify(stream.pipeline);
@@ -248,7 +243,7 @@ async function downloadRegistryFile(regfile, destinationDir, options = undefined
         }),
         fs.createWriteStream(archivePath),
       );
-      if (await fileExistsAndChecksumMatches(archivePath, checksum)) {
+      if (await fileExists(archivePath)) {
         return archivePath;
       }
     } catch (err) {
@@ -258,56 +253,26 @@ async function downloadRegistryFile(regfile, destinationDir, options = undefined
 }
 
 async function* registryFileMirrorIterator(downloadUrl) {
-  const visitedMirrors = [];
   while (true) {
     const response = await got.head(downloadUrl, {
+      timeout: 60 * 1000,
+      retry: { limit: 5 },
       https: {
         certificateAuthority: HTTPS_CA_CERTIFICATES,
       },
-      followRedirect: false,
-      throwHttpErrors: false,
-      timeout: 60 * 1000,
-      retry: { limit: 5 },
-      searchParams: visitedMirrors.length
-        ? { bypass: visitedMirrors.join(',') }
-        : undefined,
     });
-    const stopConditions = [
-      ![302, 307].includes(response.statusCode),
-      !response.headers.location,
-      !response.headers['x-pio-mirror'],
-      visitedMirrors.includes(response.headers['x-pio-mirror']),
-    ];
-    if (stopConditions.some((cond) => cond)) {
-      return;
-    }
-    visitedMirrors.push(response.headers['x-pio-mirror']);
     yield {
       url: response.headers.location,
-      checksum: response.headers['x-pio-content-sha256'],
     };
   }
 }
 
-async function fileExistsAndChecksumMatches(filePath, checksum) {
+async function fileExists(filePath) {
   try {
     await fs.promises.access(filePath);
-    if ((await calculateFileHashsum(filePath)) === checksum) {
-      return true;
-    }
-    await fs.promises.unlink(filePath);
+    return true;
   } catch (err) {}
   return false;
-}
-
-async function calculateFileHashsum(filePath, algo = 'sha256') {
-  return new Promise((resolve, reject) => {
-    const hash = crypto.createHash(algo);
-    const fsStream = fs.createReadStream(filePath);
-    fsStream.on('data', (data) => hash.update(data));
-    fsStream.on('end', () => resolve(hash.digest('hex')));
-    fsStream.on('error', (err) => reject(err));
-  });
 }
 
 async function extractTarGz(source, destination) {

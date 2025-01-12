@@ -141,7 +141,7 @@ export class ProjectTasks {
       multienv: true,
     },
     {
-      name: 'Upgrade PlatformIO Core',
+      name: 'Upgrade pioarduino Core',
       args: ['upgrade'],
       group: 'Miscellaneous',
     },
