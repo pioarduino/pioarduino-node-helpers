@@ -1,23 +1,24 @@
 {
-  "name": "platformio-node-helpers",
-  "version": "11.3.0",
-  "description": "Collection of Node.JS helpers for PlatformIO",
+  "name": "pioarduino-node-helpers",
+  "version": "11.3.4",
+  "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
     "node": ">=14"
   },
   "scripts": {
     "build": "webpack --env build",
-    "dev": "webpack --progress --colors --watch --env dev",
+    "dev": "webpack --progress --watch --env dev",
     "lint": "eslint --ext js src || exit 0",
     "format": "prettier --single-quote --print-width 88 --write \"src/**/*.js\""
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/platformio/platformio-node-helpers.git"
+    "url": "git+https://github.com/pioarduino/pioarduino-node-helpers.git"
   },
   "keywords": [
     "PlatformIO",
+    "pioarduino",
     "IoT",
     "debug",
     "unittest",
@@ -25,31 +26,19 @@
     "flash",
     "firmware",
     "arduino",
-    "CMSIS",
     "ESP-IDF",
-    "SPL",
-    "mbed",
-    "STM32Cube",
-    "avr",
-    "arm",
     "espressif",
     "esp8266",
     "esp32",
-    "stm32",
-    "pic32",
-    "nRF51",
-    "nRF52",
-    "fpga",
-    "verilog",
     "hardware",
     "serial",
     "monitor"
   ],
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/platformio/platformio-node-helpers/issues"
+    "url": "https://github.com/pioarduino/pioarduino-node-helpers/issues"
   },
-  "homepage": "https://platformio.org",
+  "homepage": "https://github.com/pioarduino",
   "dependencies": {
     "global-agent": "^3.0.0",
     "got": "^11.8.6",
