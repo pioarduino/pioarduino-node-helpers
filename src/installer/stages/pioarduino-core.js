@@ -12,11 +12,11 @@ import * as proc from '../../proc';
 import { findPythonExecutable, installPortablePython } from '../get-python';
 
 import BaseStage from './base';
-import { callInstallerScript } from '../get-platformio';
+import { callInstallerScript } from '../get-pioarduino';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-export default class PlatformIOCoreStage extends BaseStage {
+export default class pioarduinoCoreStage extends BaseStage {
   static getBuiltInPythonDir() {
     return path.join(core.getCoreDir(), 'python3');
   }
@@ -27,14 +27,14 @@ export default class PlatformIOCoreStage extends BaseStage {
   }
 
   get name() {
-    return 'PlatformIO Core';
+    return 'pioarduino Core';
   }
 
   configureBuiltInPython() {
     if (!this.params.useBuiltinPython) {
       return;
     }
-    const builtInPythonDir = PlatformIOCoreStage.getBuiltInPythonDir();
+    const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
     proc.extendOSEnvironPath('PLATFORMIO_PATH', [
       proc.IS_WINDOWS ? builtInPythonDir : path.join(builtInPythonDir, 'bin'),
     ]);
@@ -45,7 +45,7 @@ export default class PlatformIOCoreStage extends BaseStage {
       try {
         await fs.access(core.getEnvBinDir());
       } catch (err) {
-        throw new Error('PlatformIO Core has not been installed yet!');
+        throw new Error('pioarduino Core has not been installed yet!');
       }
     }
     // check that PIO Core is installed
@@ -113,7 +113,7 @@ export default class PlatformIOCoreStage extends BaseStage {
     if (!this.params.useBuiltinPython) {
       return false;
     }
-    const builtInPythonDir = PlatformIOCoreStage.getBuiltInPythonDir();
+    const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
     const coreState = core.getCoreState();
     try {
       await fs.access(builtInPythonDir);
@@ -178,7 +178,7 @@ export default class PlatformIOCoreStage extends BaseStage {
     if (!this.params.useBuiltinPIOCore) {
       this.status = BaseStage.STATUS_FAILED;
       throw new Error(
-        'Could not find compatible PlatformIO Core. Please enable `platformio-ide.useBuiltinPIOCore` setting and restart IDE.',
+        'Could not find compatible pioarduino Core. Please enable `pioarduino-ide.useBuiltinPIOCore` setting and restart IDE.',
       );
     }
     this.status = BaseStage.STATUS_INSTALLING;
@@ -191,7 +191,7 @@ export default class PlatformIOCoreStage extends BaseStage {
       if (this.params.useBuiltinPython) {
         withProgress('Downloading portable Python interpreter', 10);
         try {
-          await installPortablePython(PlatformIOCoreStage.getBuiltInPythonDir(), {
+          await installPortablePython(pioarduinoCoreStage.getBuiltInPythonDir(), {
             predownloadedPackageDir: this.params.predownloadedPackageDir,
           });
         } catch (err) {
@@ -206,7 +206,7 @@ export default class PlatformIOCoreStage extends BaseStage {
         }
       }
 
-      withProgress('Installing PlatformIO Core', 20);
+      withProgress('Installing pioarduino Core', 20);
       const scriptArgs = [];
       if (this.useDevCore()) {
         scriptArgs.push('--dev');
@@ -219,10 +219,10 @@ export default class PlatformIOCoreStage extends BaseStage {
       );
 
       // check that PIO Core is installed and load its state an patch OS environ
-      withProgress('Loading PlatformIO Core state', 40);
+      withProgress('Loading pioarduino Core state', 40);
       await this.loadCoreState();
 
-      withProgress('Installing PlatformIO Home', 80);
+      withProgress('Installing pioarduino Home', 80);
       await this.installPIOHome();
     } catch (err) {
       misc.reportError(err);
