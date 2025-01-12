@@ -157,8 +157,6 @@ export async function installPortablePython(destinationDir, options = undefined)
   }
   try {
     await fs.promises.rm(destinationDir, { recursive: true, force: true });
-      recursive: true,
-    });
   } catch (err) {
     console.warn(err);
   }
