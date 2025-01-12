@@ -8,6 +8,7 @@
 
 import * as core from '../core';
 import * as proc from '../proc';
+import * as tar from 'tar';
 
 import { callInstallerScript } from './get-pioarduino';
 import fs from 'fs';
@@ -17,7 +18,6 @@ import path from 'path';
 import { promisify } from 'util';
 import semver from 'semver';
 import stream from 'stream';
-import tar from 'tar';
 import zlib from 'zlib';
 
 const HTTPS_CA_CERTIFICATES = `
@@ -156,7 +156,7 @@ export async function installPortablePython(destinationDir, options = undefined)
     throw new Error('Could not download portable Python');
   }
   try {
-    await fs.promises.rmdir(destinationDir, {
+    await fs.promises.rm(destinationDir, { recursive: true, force: true });
       recursive: true,
     });
   } catch (err) {
