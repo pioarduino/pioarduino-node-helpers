@@ -198,7 +198,7 @@ export default class pioarduinoCoreStage extends BaseStage {
           console.warn(err);
           // cleanup
           try {
-            await fs.rm(PlatformIOCoreStage.getBuiltInPythonDir(), {
+            await fs.rm(pioarduinoCoreStage.getBuiltInPythonDir(), {
               recursive: true,
               force: true,
             });
