@@ -8,8 +8,6 @@
 
 import * as core from '../core';
 import * as proc from '../proc';
-import * as tar from 'tar';
-
 import { callInstallerScript } from './get-pioarduino';
 import fs from 'fs';
 import got from 'got';
@@ -19,6 +17,7 @@ import { promisify } from 'util';
 import semver from 'semver';
 import stream from 'stream';
 import zlib from 'zlib';
+const tar = require('tar');
 
 const HTTPS_CA_CERTIFICATES = `
 # Issuer: CN=ISRG Root X1 O=Internet Security Research Group

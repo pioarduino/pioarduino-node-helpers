@@ -48,15 +48,35 @@ export default class pioarduinoCoreStage extends BaseStage {
         throw new Error('pioarduino Core has not been installed yet!');
       }
     }
-    // check that PIO Core is installed
-    await this.loadCoreState();
 
-    // check if outdated built-in Python
-    if (await this.isBuiltinPythonOutdated()) {
-      return false;
+    // Check if portable Python is present and valid locally
+    let pythonOk = true;
+    if (this.params.useBuiltinPython) {
+      try {
+        const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
+        await fs.access(builtInPythonDir);
+        const coreState = core.getCoreState();
+        if (
+          !coreState.python_version ||
+          !/^3\.(9|[1-9][0-9]+)\./.test(coreState.python_version)
+        ) {
+          pythonOk = false;
+        }
+      } catch (err) {
+        pythonOk = false;
+      }
     }
 
-    // Setup `platformio` CLI globally for a Node.JS process
+    // Only if Python is missing or outdated, call loadCoreState()
+    if (!pythonOk) {
+      await this.loadCoreState();
+      // After loadCoreState, check again for outdated Python
+      if (await this.isBuiltinPythonOutdated()) {
+        return false;
+      }
+    }
+
+    // Setup `platformio` CLI globally for a Node.js process
     if (this.params.useBuiltinPIOCore) {
       proc.extendOSEnvironPath('PLATFORMIO_PATH', [
         core.getEnvBinDir(),
@@ -117,14 +137,8 @@ export default class pioarduinoCoreStage extends BaseStage {
     const coreState = core.getCoreState();
     try {
       await fs.access(builtInPythonDir);
-      if (!coreState.python_version.startsWith('3.9.')) {
-        throw new Error('Not 3.9 Python in penv');
-      }
-      const pkgVersion = (
-        await misc.loadJSON(path.join(builtInPythonDir, 'package.json'))
-      ).version;
-      if (!pkgVersion.startsWith('1.309')) {
-        throw new Error('Not 3.9 Python package');
+      if (!/^3\.(9|[1-9][0-9]+)\./.test(coreState.python_version)) {
+        throw new Error('Python < 3.9 in penv (Python >= 3.9 required)');
       }
     } catch (err) {
       return false;
@@ -218,7 +232,7 @@ export default class pioarduinoCoreStage extends BaseStage {
         ),
       );
 
-      // check that PIO Core is installed and load its state an patch OS environ
+      // Check that PIO Core is installed, load its state and patch OS environment
       withProgress('Loading pioarduino Core state', 40);
       await this.loadCoreState();
 
