@@ -1,10 +1,10 @@
 {
   "name": "pioarduino-node-helpers",
-  "version": "11.4.0",
+  "version": "11.4.1",
   "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=14"
+    "node": ">=16"
   },
   "scripts": {
     "build": "webpack --env build",
@@ -49,7 +49,7 @@
     "ws": "~8.18.0"
   },
   "devDependencies": {
-    "@types/node": "~14",
+    "@types/node": "~20",
     "eslint": "~8.56.0",
     "eslint-import-resolver-webpack": "~0.13.10",
     "eslint-plugin-import": "~2.31.0",

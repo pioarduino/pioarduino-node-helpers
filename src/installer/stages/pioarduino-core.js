@@ -27,13 +27,47 @@ export default class pioarduinoCoreStage extends BaseStage {
 
   static getBuiltInPythonBinDir() {
     const penvDir = pioarduinoCoreStage.getBuiltInPythonDir();
-    return proc.IS_WINDOWS ? penvDir : path.join(penvDir, 'bin');
+    return proc.IS_WINDOWS ? path.join(penvDir, 'Scripts') : path.join(penvDir, 'bin');
+  }
+
+  static async findBuiltInPythonExe() {
+    const penvDir = pioarduinoCoreStage.getBuiltInPythonDir();
+
+    if (proc.IS_WINDOWS) {
+      // On Windows, check both root directory and Scripts subdirectory
+      const pythonExe = 'python.exe';
+      const possiblePaths = [
+        path.join(penvDir, pythonExe), // Direct in penv (portable install)
+        path.join(penvDir, 'Scripts', pythonExe), // In Scripts (venv style)
+      ];
+
+      for (const pythonPath of possiblePaths) {
+        try {
+          await fs.access(pythonPath);
+          return pythonPath;
+        } catch (err) {
+          // Continue to next path
+        }
+      }
+
+      // If neither exists, return the first one for error reporting
+      return possiblePaths[0];
+    } else {
+      // Unix: always in bin subdirectory
+      return path.join(penvDir, 'bin', 'python3');
+    }
   }
 
   static getBuiltInPythonExe() {
-    const binDir = pioarduinoCoreStage.getBuiltInPythonBinDir();
-    const pythonExe = proc.IS_WINDOWS ? 'python.exe' : 'python3';
-    return path.join(binDir, pythonExe);
+    const penvDir = pioarduinoCoreStage.getBuiltInPythonDir();
+
+    if (proc.IS_WINDOWS) {
+      // For synchronous calls, return the most likely path (portable install style)
+      return path.join(penvDir, 'python.exe');
+    } else {
+      // Unix: always in bin subdirectory
+      return path.join(penvDir, 'bin', 'python3');
+    }
   }
 
   constructor() {
@@ -87,7 +121,7 @@ export default class pioarduinoCoreStage extends BaseStage {
         ]);
 
         // Initialize minimal core state for getPIOCommandOutput to work
-        const pythonPath = pioarduinoCoreStage.getBuiltInPythonExe();
+        const pythonPath = await pioarduinoCoreStage.findBuiltInPythonExe();
 
         // Validate Python exists before setting core state
         try {
@@ -232,7 +266,7 @@ export default class pioarduinoCoreStage extends BaseStage {
       await fs.access(builtInPythonDir);
 
       // Use consistent path construction via static methods
-      const pythonPath = pioarduinoCoreStage.getBuiltInPythonExe();
+      const pythonPath = await pioarduinoCoreStage.findBuiltInPythonExe();
       await fs.access(pythonPath);
 
       // Check version offline
@@ -316,7 +350,7 @@ export default class pioarduinoCoreStage extends BaseStage {
       // First try to find Python in the built-in location if available
       if (this.params.useBuiltinPython) {
         try {
-          const pythonPath = pioarduinoCoreStage.getBuiltInPythonExe();
+          const pythonPath = await pioarduinoCoreStage.findBuiltInPythonExe();
           await fs.access(pythonPath);
           console.info('Using built-in Python:', pythonPath);
           return pythonPath;
@@ -346,7 +380,7 @@ export default class pioarduinoCoreStage extends BaseStage {
 
     this.status = BaseStage.STATUS_FAILED;
     throw new Error(
-      'Can not find Python Interpreter. Please install Python 3.6 or above manually',
+      'Can not find Python Interpreter. Please install Python 3.9 or above',
     );
   }
 
