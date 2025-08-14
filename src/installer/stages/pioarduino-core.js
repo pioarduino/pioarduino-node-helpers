@@ -14,79 +14,172 @@ import { findPythonExecutable, installPortablePython } from '../get-python';
 import BaseStage from './base';
 import { callInstallerScript } from '../get-pioarduino';
 import { promises as fs } from 'fs';
+import { lookup } from 'dns';
 import path from 'path';
+import { promisify } from 'util';
+
+const dnsLookup = promisify(lookup);
 
 export default class pioarduinoCoreStage extends BaseStage {
   static getBuiltInPythonDir() {
-    return path.join(core.getCoreDir(), 'python3');
+    return path.join(core.getCoreDir(), 'penv');
+  }
+
+  static getBuiltInPythonBinDir() {
+    const penvDir = pioarduinoCoreStage.getBuiltInPythonDir();
+    return proc.IS_WINDOWS ? penvDir : path.join(penvDir, 'bin');
+  }
+
+  static getBuiltInPythonExe() {
+    const binDir = pioarduinoCoreStage.getBuiltInPythonBinDir();
+    const pythonExe = proc.IS_WINDOWS ? 'python.exe' : 'python3';
+    return path.join(binDir, pythonExe);
   }
 
   constructor() {
     super(...arguments);
-    this.configureBuiltInPython();
+    // Don't configure built-in Python here - will be done in check()
   }
 
   get name() {
     return 'pioarduino Core';
   }
 
-  configureBuiltInPython() {
-    if (!this.params.useBuiltinPython) {
-      return;
+  async hasInternetConnection() {
+    try {
+      // DNS lookup to Cloudflare's 1.1.1.1 (fast and reliable)
+      await dnsLookup('1.1.1.1');
+      return true;
+    } catch (err) {
+      console.info('No internet connection detected');
+      return false;
     }
-    const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
-    proc.extendOSEnvironPath('PLATFORMIO_PATH', [
-      proc.IS_WINDOWS ? builtInPythonDir : path.join(builtInPythonDir, 'bin'),
-    ]);
+  }
+
+  async checkPlatformIOOnline() {
+    try {
+      // Try to run platformio --version to verify it works
+      const output = await proc.getCommandOutput('platformio', ['--version'], {
+        timeout: 10000,
+      });
+      console.info('PlatformIO online check successful:', output.trim());
+      return true;
+    } catch (err) {
+      console.warn('PlatformIO online check failed:', err.message);
+      return false;
+    }
   }
 
   async check() {
+    // Handle both useBuiltinPIOCore true and false cases
     if (this.params.useBuiltinPIOCore) {
+      // Built-in PIO Core: check .platformio/penv directory
       try {
-        await fs.access(core.getEnvBinDir());
-      } catch (err) {
-        throw new Error('pioarduino Core has not been installed yet!');
-      }
-    }
+        const penvDir = path.join(core.getCoreDir(), 'penv');
+        await fs.access(penvDir);
+        console.info('PlatformIO installation detected at:', penvDir);
 
-    // Check if portable Python is present and valid locally
-    let pythonOk = true;
-    if (this.params.useBuiltinPython) {
-      try {
-        const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
-        await fs.access(builtInPythonDir);
-        const coreState = core.getCoreState();
-        if (
-          !coreState.python_version ||
-          !/^3\.(9|[1-9][0-9]+)\./.test(coreState.python_version)
-        ) {
-          pythonOk = false;
+        // Setup `platformio` CLI globally BEFORE testing it
+        const penvBinDir = pioarduinoCoreStage.getBuiltInPythonBinDir();
+        proc.extendOSEnvironPath('PLATFORMIO_PATH', [
+          penvBinDir,
+          path.join(core.getCoreDir(), 'penv'),
+        ]);
+
+        // Initialize minimal core state for getPIOCommandOutput to work
+        const pythonPath = pioarduinoCoreStage.getBuiltInPythonExe();
+
+        // Validate Python exists before setting core state
+        try {
+          await fs.access(pythonPath);
+          core.setCoreState({
+            core_dir: core.getCoreDir(),
+            python_exe: pythonPath,
+            penv_bin_dir: penvBinDir,
+          });
+        } catch (err) {
+          console.warn('Python executable not found at:', pythonPath);
+          throw new Error(
+            'pioarduino Core installation is incomplete - Python not found!',
+          );
+        }
+
+        // Check Python offline if enabled
+        if (this.params.useBuiltinPython) {
+          const pythonOk = await this.checkPythonOffline();
+          if (!pythonOk) {
+            console.warn(
+              'Python check failed, but continuing with existing installation',
+            );
+          }
+        }
+
+        // Test PlatformIO functionality if internet connection is available
+        const hasInternet = await this.hasInternetConnection();
+        if (hasInternet) {
+          const pioOk = await this.checkPlatformIOOnline();
+          if (!pioOk) {
+            console.warn('PlatformIO online check failed, triggering reinstall...');
+            this.status = BaseStage.STATUS_FAILED;
+            throw new Error(
+              'PlatformIO installation is corrupted and needs to be reinstalled!',
+            );
+          }
+        } else {
+          console.info('Skipping PlatformIO online check (no internet connection)');
         }
       } catch (err) {
-        pythonOk = false;
+        // Check if it's a directory access error (not installed)
+        if (
+          err.code === 'ENOENT' ||
+          err.message.includes('ENOENT') ||
+          err.message.includes('no such file') ||
+          err.message.includes('not been installed')
+        ) {
+          throw new Error('pioarduino Core has not been installed yet!');
+        }
+        // Re-throw other errors (like the reinstall trigger)
+        throw err;
+      }
+    } else {
+      // Global PIO Core: Set minimal core state first, then test
+      try {
+        // For global PIO, find Python and set minimal core state FIRST
+        const pythonPath = await findPythonExecutable();
+        if (!pythonPath) {
+          throw new Error('No Python found for global PlatformIO');
+        }
+
+        core.setCoreState({
+          core_dir: core.getCoreDir(),
+          python_exe: pythonPath,
+        });
+        console.info('Using system Python for global PlatformIO:', pythonPath);
+
+        // Now test PlatformIO functionality if internet connection is available
+        const hasInternet = await this.hasInternetConnection();
+        if (hasInternet) {
+          const pioOk = await this.checkPlatformIOOnline();
+          if (!pioOk) {
+            throw new Error(
+              'Could not find compatible pioarduino Core. Please enable `pioarduino-ide.useBuiltinPIOCore` setting and restart IDE.',
+            );
+          }
+        } else {
+          // Offline: Core state already set, just log
+          console.info('Offline mode: assuming global PlatformIO installation exists');
+        }
+      } catch (err) {
+        console.warn('Global PIO setup failed:', err.message);
+        throw new Error(
+          'Could not find compatible pioarduino Core. Please enable `pioarduino-ide.useBuiltinPIOCore` setting and restart IDE.',
+        );
       }
     }
 
-    // Only if Python is missing or outdated, call loadCoreState()
-    if (!pythonOk) {
-      await this.loadCoreState();
-      // After loadCoreState, check again for outdated Python
-      if (await this.isBuiltinPythonOutdated()) {
-        return false;
-      }
-    }
-
-    // Setup `platformio` CLI globally for a Node.js process
-    if (this.params.useBuiltinPIOCore) {
-      proc.extendOSEnvironPath('PLATFORMIO_PATH', [
-        core.getEnvBinDir(),
-        core.getEnvDir(),
-      ]);
-    }
     this.status = BaseStage.STATUS_SUCCESSED;
     return true;
   }
-
   async loadCoreState() {
     const stateJSONPath = path.join(
       core.getTmpDir(),
@@ -129,36 +222,108 @@ export default class pioarduinoCoreStage extends BaseStage {
     );
   }
 
+  async checkPythonOffline() {
+    if (!this.params.useBuiltinPython) {
+      return true;
+    }
+
+    try {
+      const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
+      await fs.access(builtInPythonDir);
+
+      // Use consistent path construction via static methods
+      const pythonPath = pioarduinoCoreStage.getBuiltInPythonExe();
+      await fs.access(pythonPath);
+
+      // Check version offline
+      const version = await this.checkPythonVersionOffline(pythonPath);
+      console.info(`Built-in Python ${version} is valid for offline use`);
+      return true;
+    } catch (err) {
+      console.warn('Built-in Python check failed:', err.message);
+      return false;
+    }
+  }
+
+  async checkPythonVersionOffline(pythonPath) {
+    try {
+      // Get Python version directly without calling PlatformIO installer
+      const output = await proc.getCommandOutput(
+        pythonPath,
+        ['-c', 'import sys; print(sys.version)'],
+        {
+          timeout: 5000,
+        },
+      );
+
+      const versionMatch = output.match(/^(\d+)\.(\d+)\.(\d+)/);
+      if (versionMatch) {
+        const major = parseInt(versionMatch[1]);
+        const minor = parseInt(versionMatch[2]);
+
+        // Check if Python >= 3.9
+        if (major === 3 && minor >= 9) {
+          console.info(`Python ${versionMatch[0]} detected (offline check)`);
+          return versionMatch[0];
+        } else {
+          throw new Error(
+            `Python ${versionMatch[0]} found, but Python >= 3.9 required`,
+          );
+        }
+      }
+      throw new Error('Could not determine Python version');
+    } catch (err) {
+      throw new Error(`Python version check failed: ${err.message}`);
+    }
+  }
+
   async isBuiltinPythonOutdated() {
     if (!this.params.useBuiltinPython) {
       return false;
     }
     const builtInPythonDir = pioarduinoCoreStage.getBuiltInPythonDir();
-    const coreState = core.getCoreState();
     try {
       await fs.access(builtInPythonDir);
-      if (!/^3\.(9|[1-9][0-9]+)\./.test(coreState.python_version)) {
-        throw new Error('Python < 3.9 in penv (Python >= 3.9 required)');
-      }
-    } catch (err) {
-      return false;
-    }
-    if ((coreState.system || '').startsWith('windows')) {
-      try {
-        await fs.unlink(path.join(builtInPythonDir, 'python.exe'));
-      } catch (err) {
+      const coreState = core.getCoreState();
+      // If we have a valid Python version in core state, check it
+      if (coreState.python_version) {
+        if (!/^3\.(9|[1-9][0-9]+)\./.test(coreState.python_version)) {
+          throw new Error('Python < 3.9 in penv (Python >= 3.9 required)');
+        }
+        // Python version is valid, no need to upgrade
         return false;
       }
+      // If no version info available, assume it's valid to avoid unnecessary upgrades
+      console.info(
+        'No Python version info available, assuming existing installation is valid',
+      );
+      return false;
+    } catch (err) {
+      // If Python directory doesn't exist or version check fails, it needs to be installed/upgraded
+      if (err.message.includes('Python < 3.9')) {
+        console.info('Upgrading built-in Python...');
+        return true;
+      }
+      return false;
     }
-    console.info('Upgrading built-in Python...');
-    return true;
   }
 
   async whereIsPython({ prompt = false } = {}) {
     let status = this.params.pythonPrompt.STATUS_TRY_AGAIN;
-    this.configureBuiltInPython();
+    // Don't call configureBuiltInPython() here - PATH already set in check()
 
     if (!prompt) {
+      // First try to find Python in the built-in location if available
+      if (this.params.useBuiltinPython) {
+        try {
+          const pythonPath = pioarduinoCoreStage.getBuiltInPythonExe();
+          await fs.access(pythonPath);
+          console.info('Using built-in Python:', pythonPath);
+          return pythonPath;
+        } catch (err) {
+          console.info('Built-in Python not found, searching system PATH');
+        }
+      }
       return await findPythonExecutable();
     }
 
