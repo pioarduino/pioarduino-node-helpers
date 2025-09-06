@@ -100,5 +100,5 @@ export function getErrorReportUrl(title, description) {
   qs.set('title', title);
   qs.set('body', description);
   qs.set('labels', 'auto');
-  return `https://github.com/platformio/platformio-${repoName}/issues/new?${qs.toString()}`;
+  return `https://github.com/pioarduino/pioarduino-${repoName}/issues/new?${qs.toString()}`;
 }
