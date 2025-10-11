@@ -199,9 +199,20 @@ async function installPythonWithUV(destinationDir, pythonVersion = '3.13') {
     const absolutePath = path.resolve(destinationDir);
 
     // Use --python-preference managed to allow UV to download Python if not found on system
-    await execFile('uv', ['venv', absolutePath, '--python', pythonVersion, '--python-preference', 'managed'], {
-      timeout: 300000, // 5 minutes timeout for download and installation
-    });
+    await execFile(
+      'uv',
+      [
+        'venv',
+        absolutePath,
+        '--python',
+        pythonVersion,
+        '--python-preference',
+        'managed',
+      ],
+      {
+        timeout: 300000, // 5 minutes timeout for download and installation
+      },
+    );
 
     // Verify that Python executable was successfully created
     await ensurePythonExeExists(destinationDir);
