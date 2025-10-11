@@ -6,7 +6,6 @@
  * the root directory of this source tree.
  */
 
-import * as core from '../core';
 import * as proc from '../proc';
 import { callInstallerScript } from './get-pioarduino';
 import fs from 'fs';
@@ -173,15 +172,15 @@ async function installUV() {
 
 /**
  * Install Python using UV package manager
- * Uses UV to download and install Python from astral-sh/python-build-standalone
- * Automatically handles platform detection, download, verification, and extraction
- * @param {string} destinationDir - Target installation directory
+ * Creates a virtual environment using `uv venv` with Python 3.13
+ * This is simpler and more reliable than installing Python separately
+ * @param {string} destinationDir - Target installation directory (venv path)
  * @param {string} pythonVersion - Python version to install (default: "3.13")
- * @returns {Promise<string>} Path to installed Python directory
- * @throws {Error} If UV installation or Python installation fails
+ * @returns {Promise<string>} Path to installed Python venv directory
+ * @throws {Error} If UV installation or venv creation fails
  */
 async function installPythonWithUV(destinationDir, pythonVersion = '3.13') {
-  log('info', `Installing Python ${pythonVersion} using UV`);
+  log('info', `Creating Python ${pythonVersion} venv using UV`);
 
   // Ensure UV is available, install if necessary
   if (!(await isUVAvailable())) {
@@ -195,77 +194,49 @@ async function installPythonWithUV(destinationDir, pythonVersion = '3.13') {
     // Ignore cleanup errors (directory might not exist)
   }
 
-  // Create destination directory structure
-  await fs.promises.mkdir(destinationDir, { recursive: true });
-
   try {
-    // Configure environment for UV Python installation
-    const env = {
-      ...process.env,
-      UV_PYTHON_INSTALL_DIR: destinationDir,
-      UV_CACHE_DIR: path.join(core.getTmpDir(), 'uv-cache'),
-    };
+    // Create venv directly using uv venv command with absolute path
+    const absolutePath = path.resolve(destinationDir);
 
-    // Execute UV Python installation command
-    await execFile('uv', ['python', 'install', pythonVersion], {
-      env,
+    // Use --python-preference managed to allow UV to download Python if not found on system
+    await execFile('uv', ['venv', absolutePath, '--python', pythonVersion, '--python-preference', 'managed'], {
       timeout: 300000, // 5 minutes timeout for download and installation
-      cwd: destinationDir,
     });
 
-    // Verify that Python executable was successfully installed
-    await ensurePythonExeExists(destinationDir, pythonVersion);
+    // Verify that Python executable was successfully created
+    await ensurePythonExeExists(destinationDir);
 
-    log('info', `Python ${pythonVersion} installation completed: ${destinationDir}`);
+    log('info', `Python ${pythonVersion} venv created successfully: ${destinationDir}`);
     return destinationDir;
   } catch (err) {
-    throw new Error(`UV Python installation failed: ${err.message}`);
+    throw new Error(`UV venv creation failed: ${err.message}`);
   }
 }
 
 /**
- * Verify that Python executable exists in the installed directory
- * Searches through common installation paths where UV might place Python executables
- * @param {string} pythonDir - Directory containing Python installation
- * @param {string} pythonVersion - Python version for path construction (default: "3.13")
+ * Verify that Python executable exists in the venv directory
+ * Checks the standard venv bin/Scripts directory for Python executable
+ * @param {string} pythonDir - Directory containing Python venv
  * @returns {Promise<boolean>} True if executable exists and is accessible
  * @throws {Error} If no Python executable found in expected locations
  */
-async function ensurePythonExeExists(pythonDir, pythonVersion = '3.13') {
-  // UV typically installs to subdirectories organized by version
-  const possiblePaths = [
-    pythonDir, // Direct installation in target directory
-    path.join(pythonDir, 'python'),
-    path.join(pythonDir, `python-${pythonVersion}`),
-    path.join(pythonDir, pythonVersion),
-  ];
-
+async function ensurePythonExeExists(pythonDir) {
+  // Standard venv structure: bin/ on Unix, Scripts/ on Windows
+  const binDir = proc.IS_WINDOWS
+    ? path.join(pythonDir, 'Scripts')
+    : path.join(pythonDir, 'bin');
   const executables = proc.IS_WINDOWS ? ['python.exe'] : ['python3', 'python'];
 
-  for (const basePath of possiblePaths) {
-    // Check for executable in root of installation path
-    for (const exeName of executables) {
-      try {
-        await fs.promises.access(path.join(basePath, exeName));
-        return true;
-      } catch (err) {
-        // Continue trying other combinations
-      }
-    }
-
-    // Check for executable in bin subdirectory (Unix-style layout)
-    const binDir = path.join(basePath, 'bin');
-    for (const exeName of executables) {
-      try {
-        await fs.promises.access(path.join(binDir, exeName));
-        return true;
-      } catch (err) {
-        // Continue trying other combinations
-      }
+  for (const exeName of executables) {
+    try {
+      await fs.promises.access(path.join(binDir, exeName));
+      return true;
+    } catch (err) {
+      // Continue trying other executables
     }
   }
 
-  throw new Error('Python executable does not exist after UV installation!');
+  throw new Error('Python executable does not exist after venv creation!');
 }
 
 /**
@@ -291,39 +262,31 @@ export async function installPortablePython(destinationDir) {
 }
 
 /**
- * Locate Python executable in an installed Python directory
- * Searches through common locations where UV might install Python executables
- * @param {string} pythonDir - Python installation directory to search
+ * Locate Python executable in a venv directory
+ * Uses standard venv structure (bin/ on Unix, Scripts/ on Windows)
+ * @param {string} pythonDir - Python venv directory to search
  * @returns {Promise<string>} Full path to Python executable
- * @throws {Error} If no executable found in the directory
+ * @throws {Error} If no executable found in the venv
  */
 function getPythonExecutablePath(pythonDir) {
+  // Standard venv structure
+  const binDir = proc.IS_WINDOWS
+    ? path.join(pythonDir, 'Scripts')
+    : path.join(pythonDir, 'bin');
   const executables = proc.IS_WINDOWS ? ['python.exe'] : ['python3', 'python'];
 
-  // Check common locations where UV might install Python
-  const searchPaths = [
-    pythonDir,
-    path.join(pythonDir, 'bin'),
-    path.join(pythonDir, 'python'),
-    path.join(pythonDir, 'python-3.13'),
-    path.join(pythonDir, '3.13'),
-    path.join(pythonDir, '3.13', 'bin'),
-  ];
-
-  for (const searchPath of searchPaths) {
-    for (const exeName of executables) {
-      const fullPath = path.join(searchPath, exeName);
-      try {
-        fs.accessSync(fullPath, fs.constants.X_OK);
-        log('info', `Found Python executable: ${fullPath}`);
-        return fullPath;
-      } catch (err) {
-        // Continue searching through all combinations
-      }
+  for (const exeName of executables) {
+    const fullPath = path.join(binDir, exeName);
+    try {
+      fs.accessSync(fullPath, fs.constants.X_OK);
+      log('info', `Found Python executable: ${fullPath}`);
+      return fullPath;
+    } catch (err) {
+      // Continue searching through all executables
     }
   }
 
-  throw new Error(`Could not find Python executable in ${pythonDir}`);
+  throw new Error(`Could not find Python executable in venv ${pythonDir}`);
 }
 
 // Export utility functions for external use
