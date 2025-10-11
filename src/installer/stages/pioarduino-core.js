@@ -362,6 +362,18 @@ export default class pioarduinoCoreStage extends BaseStage {
     }
 
     do {
+      // First try to find built-in Python if enabled
+      if (this.params.useBuiltinPython) {
+        try {
+          const pythonPath = await pioarduinoCoreStage.findBuiltInPythonExe();
+          await fs.access(pythonPath);
+          console.info('Using built-in Python:', pythonPath);
+          return pythonPath;
+        } catch (err) {
+          console.info('Built-in Python not found, searching system PATH');
+        }
+      }
+
       const pythonExecutable = await findPythonExecutable();
       if (pythonExecutable) {
         return pythonExecutable;
