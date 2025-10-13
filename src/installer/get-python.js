@@ -135,6 +135,18 @@ async function isUVAvailable() {
 }
 
 /**
+ * Get UV executable path after installation
+ * On Windows, UV is installed to %USERPROFILE%\.local\bin
+ * On Unix/Linux/macOS, UV is installed to ~/.local/bin
+ * @returns {string} Full path to UV executable
+ */
+function getUVExecutablePath() {
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const uvExe = proc.IS_WINDOWS ? 'uv.exe' : 'uv';
+  return path.join(homeDir, '.local', 'bin', uvExe);
+}
+
+/**
  * Install UV package manager using official installation scripts
  * Downloads and runs platform-specific installer from astral.sh
  * @returns {Promise<void>}
@@ -183,8 +195,15 @@ async function installPythonWithUV(destinationDir, pythonVersion = '3.13') {
   log('info', `Creating Python ${pythonVersion} venv using UV`);
 
   // Ensure UV is available, install if necessary
+  let uvCommand = 'uv';
   if (!(await isUVAvailable())) {
     await installUV();
+    // On Windows, UV might not be in PATH immediately after installation
+    // Use direct path to UV executable
+    if (proc.IS_WINDOWS) {
+      uvCommand = getUVExecutablePath();
+      log('info', `Using UV from: ${uvCommand}`);
+    }
   }
 
   // Clean up any existing installation to avoid conflicts
@@ -200,7 +219,7 @@ async function installPythonWithUV(destinationDir, pythonVersion = '3.13') {
 
     // Use --python-preference managed to allow UV to download Python if not found on system
     await execFile(
-      'uv',
+      uvCommand,
       [
         'venv',
         absolutePath,
