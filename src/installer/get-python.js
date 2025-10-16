@@ -119,22 +119,6 @@ async function isValidPythonVersion(executable) {
 }
 
 /**
- * Check if UV (astral-sh/uv) package manager is available on the system
- * UV is a fast Python package installer and resolver written in Rust
- * @returns {Promise<boolean>} True if UV is installed and accessible via PATH
- */
-async function isUVAvailable() {
-  try {
-    await execFile('uv', ['--version'], { timeout: 5000 });
-    log('info', 'UV is available on system');
-    return true;
-  } catch {
-    log('info', 'UV not found on system');
-    return false;
-  }
-}
-
-/**
  * Get UV executable path after installation
  * On Windows, UV is installed to %USERPROFILE%\.local\bin
  * On Unix/Linux/macOS, UV is installed to ~/.local/bin
@@ -144,6 +128,32 @@ function getUVExecutablePath() {
   const homeDir = process.env.USERPROFILE || process.env.HOME;
   const uvExe = proc.IS_WINDOWS ? 'uv.exe' : 'uv';
   return path.join(homeDir, '.local', 'bin', uvExe);
+}
+
+/**
+ * Check if UV (astral-sh/uv) package manager is available on the system
+ * UV is a fast Python package installer and resolver written in Rust
+ * Checks both PATH and the default installation location
+ * @returns {Promise<boolean>} True if UV is installed and accessible
+ */
+async function isUVAvailable() {
+  // First check if UV is in PATH
+  try {
+    await execFile('uv', ['--version'], { timeout: 5000 });
+    log('info', 'UV is available on system PATH');
+    return true;
+  } catch {
+    // UV not in PATH, check default installation location
+    try {
+      const uvPath = getUVExecutablePath();
+      await execFile(uvPath, ['--version'], { timeout: 5000 });
+      log('info', `UV found at: ${uvPath}`);
+      return true;
+    } catch {
+      log('info', 'UV not found on system');
+      return false;
+    }
+  }
 }
 
 /**
@@ -183,6 +193,21 @@ async function installUV() {
 }
 
 /**
+ * Get the UV command to use - either from PATH or direct path
+ * @returns {Promise<string>} UV command or path to use
+ */
+async function getUVCommand() {
+  // Try UV in PATH first
+  try {
+    await execFile('uv', ['--version'], { timeout: 5000 });
+    return 'uv';
+  } catch {
+    // Use direct path to UV installation
+    return getUVExecutablePath();
+  }
+}
+
+/**
  * Install Python using UV package manager
  * Creates a virtual environment using `uv venv` with Python 3.13
  * This is simpler and more reliable than installing Python separately
@@ -195,16 +220,13 @@ async function installPythonWithUV(destinationDir, pythonVersion = '3.13') {
   log('info', `Creating Python ${pythonVersion} venv using UV`);
 
   // Ensure UV is available, install if necessary
-  let uvCommand = 'uv';
   if (!(await isUVAvailable())) {
     await installUV();
-    // On Windows, UV might not be in PATH immediately after installation
-    // Use direct path to UV executable
-    if (proc.IS_WINDOWS) {
-      uvCommand = getUVExecutablePath();
-      log('info', `Using UV from: ${uvCommand}`);
-    }
   }
+
+  // Get the correct UV command (from PATH or direct path)
+  const uvCommand = await getUVCommand();
+  log('info', `Using UV command: ${uvCommand}`);
 
   // Clean up any existing installation to avoid conflicts
   try {
