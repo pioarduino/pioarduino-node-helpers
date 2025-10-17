@@ -9,7 +9,11 @@
 import * as core from '../../core';
 import * as misc from '../../misc';
 import * as proc from '../../proc';
-import { findPythonExecutable, installPortablePython } from '../get-python';
+import {
+  findPythonExecutable,
+  getPythonExecutablePath,
+  installPortablePython,
+} from '../get-python';
 
 import BaseStage from './base';
 import { callInstallerScript } from '../get-pioarduino';
@@ -344,33 +348,30 @@ export default class pioarduinoCoreStage extends BaseStage {
 
   async whereIsPython({ prompt = false } = {}) {
     let status = this.params.pythonPrompt.STATUS_TRY_AGAIN;
-    // Don't call configureBuiltInPython() here - PATH already set in check()
 
     if (!prompt) {
-      // First try to find Python in the built-in location if available
+      // First try to find UV-managed Python if built-in Python is enabled
       if (this.params.useBuiltinPython) {
         try {
-          const pythonPath = await pioarduinoCoreStage.findBuiltInPythonExe();
-          await fs.access(pythonPath);
-          console.info('Using built-in Python:', pythonPath);
+          const pythonPath = await getPythonExecutablePath('3.13');
+          console.info('Using UV-managed Python:', pythonPath);
           return pythonPath;
         } catch (err) {
-          console.info('Built-in Python not found, searching system PATH');
+          console.info('UV-managed Python not found, searching system PATH');
         }
       }
       return await findPythonExecutable();
     }
 
     do {
-      // First try to find built-in Python if enabled
+      // First try to find UV-managed Python if enabled
       if (this.params.useBuiltinPython) {
         try {
-          const pythonPath = await pioarduinoCoreStage.findBuiltInPythonExe();
-          await fs.access(pythonPath);
-          console.info('Using built-in Python:', pythonPath);
+          const pythonPath = await getPythonExecutablePath('3.13');
+          console.info('Using UV-managed Python:', pythonPath);
           return pythonPath;
         } catch (err) {
-          console.info('Built-in Python not found, searching system PATH');
+          console.info('UV-managed Python not found, searching system PATH');
         }
       }
 
@@ -413,38 +414,38 @@ export default class pioarduinoCoreStage extends BaseStage {
     }
     withProgress('Preparing for installation', 10);
     try {
+      let uvPythonPath = null;
       if (this.params.useBuiltinPython) {
-        withProgress('Downloading portable Python interpreter', 10);
+        withProgress('Installing Python 3.13 using UV', 10);
         try {
-          await installPortablePython(pioarduinoCoreStage.getBuiltInPythonDir(), {
-            predownloadedPackageDir: this.params.predownloadedPackageDir,
-          });
+          // installPortablePython now returns the Python executable path directly
+          uvPythonPath = await installPortablePython();
+          console.info('UV-managed Python installed at:', uvPythonPath);
         } catch (err) {
-          console.warn(err);
-          // cleanup
-          try {
-            await fs.rm(pioarduinoCoreStage.getBuiltInPythonDir(), {
-              recursive: true,
-              force: true,
-            });
-          } catch (err) {}
+          console.warn('UV Python installation failed:', err);
+          throw err;
         }
       }
 
       withProgress('Installing pioarduino Core', 20);
-      const scriptArgs = [];
-      if (this.useDevCore()) {
-        scriptArgs.push('--dev');
-      }
-      console.info(
-        await callInstallerScript(
-          await this.whereIsPython({ prompt: true }),
-          scriptArgs,
-        ),
-      );
 
-      // Check that PIO Core is installed, load its state and patch OS environment
-      withProgress('Loading pioarduino Core state', 40);
+      // Use the Python installer script to set up penv with UV
+      const pythonToUse = uvPythonPath || (await this.whereIsPython({ prompt: true }));
+      console.info('Using Python for PlatformIO installation:', pythonToUse);
+
+      // Use the installer script to create penv and install PlatformIO
+      withProgress('Creating virtual environment and installing PlatformIO', 30);
+
+      // Note: The 'install' command doesn't support --dev, --version-spec, or --no-auto-upgrade
+      // These options are only available for the 'check' command
+      const scriptArgs = ['install'];
+
+      console.info('Running installer script with args:', scriptArgs);
+      const installOutput = await callInstallerScript(pythonToUse, scriptArgs);
+      console.info('PlatformIO installation output:', installOutput);
+
+      // Load the core state from the installer script
+      withProgress('Loading pioarduino Core state', 80);
       await this.loadCoreState();
 
       withProgress('Installing pioarduino Home', 80);

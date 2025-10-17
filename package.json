@@ -1,6 +1,6 @@
 {
   "name": "pioarduino-node-helpers",
-  "version": "12.1.3",
+  "version": "12.3.0",
   "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
@@ -10,7 +10,15 @@
     "build": "webpack --env build",
     "dev": "webpack --progress --watch --env dev",
     "lint": "eslint --ext js src || exit 0",
-    "format": "prettier --single-quote --print-width 88 --write \"src/**/*.js\""
+    "format": "prettier --single-quote --print-width 88 --write \"src/**/*.js\"",
+    "test": "node test/test-uv-only.mjs && node test/test-pioarduino-script.mjs && node test/test-installer-script.mjs && node test/test-full-installation.mjs && node test/test-uv-platformio-install.mjs",
+    "test:uv": "node test/test-uv-only.mjs",
+    "test:pioarduino": "node test/test-pioarduino-script.mjs",
+    "test:installer": "node test/test-installer-script.mjs",
+    "test:full": "node test/test-full-installation.mjs",
+    "test:install": "node test/test-uv-platformio-install.mjs",
+    "test:install-old": "node test/test-python-installer-execution.mjs",
+    "test:manual": "node test/manual-test.js"
   },
   "repository": {
     "type": "git",
