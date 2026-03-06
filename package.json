@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pioarduino/pioarduino-node-helpers.git"
+    "url": "git+https://github.com/Jason2866/pioarduino-node-helpers.git"
   },
   "keywords": [
     "PlatformIO",
