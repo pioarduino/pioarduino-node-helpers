@@ -6,10 +6,10 @@
  * the root directory of this source tree.
  */
 
-import { getPIOCommandOutput } from '../core';
 import path from 'path';
-import { terminateCmdsInQueue } from '../proc';
+import { getPIOCommandOutput } from '../core';
 import { resolveRebuildArgs } from './rebuild-args';
+import { terminateCmdsInQueue } from '../proc';
 
 export default class ProjectIndexer {
   static AUTO_REBUILD_DELAY = 3; // 3 seconds
