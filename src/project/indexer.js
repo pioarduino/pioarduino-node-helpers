@@ -6,8 +6,8 @@
  * the root directory of this source tree.
  */
 
-import path from 'path';
 import { getPIOCommandOutput } from '../core';
+import path from 'path';
 import { resolveRebuildArgs } from './rebuild-args';
 import { terminateCmdsInQueue } from '../proc';
 
@@ -123,15 +123,14 @@ export default class ProjectIndexer {
 
       // Notify that rebuild is complete (isolated error handling)
       if (this.options.api.onDidRebuildIndex) {
-        try {
-          await this.options.api.onDidRebuildIndex(this.projectDir);
-        } catch (callbackErr) {
-          console.error(
-            `onDidRebuildIndex callback failed for project ${this.projectDir}:`,
-            callbackErr,
-          );
-          // Don't rethrow - callback failures shouldn't fail the rebuild
-        }
+        Promise.resolve()
+          .then(() => this.options.api.onDidRebuildIndex(this.projectDir))
+          .catch((callbackErr) => {
+            console.error(
+              `onDidRebuildIndex callback failed for project ${this.projectDir}:`,
+              callbackErr,
+            );
+          });
       }
     } catch (err) {
       console.warn(err);
