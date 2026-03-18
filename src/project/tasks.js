@@ -187,6 +187,9 @@ export class ProjectTasks {
 
     // Miscellaneous tasks
     const rebuildArgs = resolveRebuildArgs(name, this.ide, this.intelliSenseBackend);
+    if (name && !rebuildArgs.includes('--environment') && !rebuildArgs.includes('-e')) {
+      rebuildArgs.push('--environment', name);
+    }
     const initTask = new TaskItem(
       'Rebuild IntelliSense Index',
       rebuildArgs,
