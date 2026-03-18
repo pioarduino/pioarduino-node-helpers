@@ -127,7 +127,7 @@ export default class ProjectIndexer {
       }
     } catch (err) {
       console.warn(err);
-      if (!token && !token.isCancellationRequested) {
+      if (!token || !token.isCancellationRequested) {
         logMessage(err, true);
       }
     }
