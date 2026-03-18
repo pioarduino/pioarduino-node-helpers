@@ -7,6 +7,7 @@
  */
 
 import * as core from '../core';
+import { resolveRebuildArgs } from './rebuild-args';
 
 export class ProjectTasks {
   static generalTasks = [
@@ -185,9 +186,7 @@ export class ProjectTasks {
     }
 
     // Miscellaneous tasks
-    const rebuildArgs = this.intelliSenseBackend
-      ? this.intelliSenseBackend.rebuildArgs(name)
-      : ['project', 'init', '--ide', this.ide, '--environment', name];
+    const rebuildArgs = resolveRebuildArgs(name, this.ide, this.intelliSenseBackend);
     const initTask = new TaskItem(
       'Rebuild IntelliSense Index',
       rebuildArgs,

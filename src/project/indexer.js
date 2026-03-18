@@ -9,6 +9,7 @@
 import { getPIOCommandOutput } from '../core';
 import path from 'path';
 import { terminateCmdsInQueue } from '../proc';
+import { resolveRebuildArgs } from './rebuild-args';
 
 export default class ProjectIndexer {
   static AUTO_REBUILD_DELAY = 3; // 3 seconds
@@ -98,14 +99,12 @@ export default class ProjectIndexer {
     };
 
     try {
-      const backend = this.options.intelliSenseBackend;
       const selectedEnv = this.observer.getSelectedEnv();
-      const args = backend
-        ? backend.rebuildArgs(selectedEnv)
-        : ['project', 'init', '--ide', this.options.ide];
-      if (!backend && selectedEnv) {
-        args.push('--environment', selectedEnv);
-      }
+      const args = resolveRebuildArgs(
+        selectedEnv,
+        this.options.ide,
+        this.options.intelliSenseBackend,
+      );
       await getPIOCommandOutput(args, {
         projectDir: this.projectDir,
         runInQueue: true,

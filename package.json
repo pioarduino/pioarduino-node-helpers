@@ -10,6 +10,7 @@
     "build": "webpack --env build",
     "dev": "webpack --progress --watch --env dev",
     "lint": "eslint --ext js src || exit 0",
+    "lint:fix": "eslint --ext js src --fix",
     "format": "prettier --single-quote --print-width 88 --write \"src/**/*.js\"",
     "test": "node test/test-uv-only.mjs && node test/test-pioarduino-script.mjs && node test/test-installer-script.mjs && node test/test-full-installation.mjs && node test/test-uv-platformio-install.mjs",
     "test:uv": "node test/test-uv-only.mjs",
