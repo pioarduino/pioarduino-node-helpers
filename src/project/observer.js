@@ -27,7 +27,11 @@ export default class ProjectObserver {
     this._cache = new Map();
     this._config = undefined;
     this._indexer = undefined;
-    this._projectTasks = new ProjectTasks(this.projectDir, this.options.ide);
+    this._projectTasks = new ProjectTasks(
+      this.projectDir,
+      this.options.ide,
+      this.options.intelliSenseBackend,
+    );
     this._updateDirWatchersTimeout = undefined;
     this._selectedEnv = undefined;
     this._apiConfigChangedTimeout = undefined;

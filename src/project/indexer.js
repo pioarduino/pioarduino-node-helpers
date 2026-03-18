@@ -98,8 +98,11 @@ export default class ProjectIndexer {
     };
 
     try {
-      const args = ['project', 'init', '--ide', this.options.ide];
-      if (this.observer.getSelectedEnv()) {
+      const backend = this.options.intelliSenseBackend;
+      const args = backend
+        ? backend.rebuildArgs(this.observer.getSelectedEnv())
+        : ['project', 'init', '--ide', this.options.ide];
+      if (!backend && this.observer.getSelectedEnv()) {
         args.push('--environment', this.observer.getSelectedEnv());
       }
       await getPIOCommandOutput(args, {
@@ -117,6 +120,11 @@ export default class ProjectIndexer {
         onProcStdout: (data) => logMessage(data),
         onProcStderr: (data) => logMessage(data, true),
       });
+
+      // Notify that rebuild is complete
+      if (this.options.api.onDidRebuildIndex) {
+        await this.options.api.onDidRebuildIndex(this.projectDir);
+      }
     } catch (err) {
       console.warn(err);
       if (!token && !token.isCancellationRequested) {

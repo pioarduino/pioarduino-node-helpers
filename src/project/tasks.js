@@ -147,9 +147,10 @@ export class ProjectTasks {
     },
   ];
 
-  constructor(projectDir, ide) {
+  constructor(projectDir, ide, intelliSenseBackend) {
     this.projectDir = projectDir;
     this.ide = ide;
+    this.intelliSenseBackend = intelliSenseBackend;
   }
 
   async getDefaultTasks() {
@@ -184,9 +185,12 @@ export class ProjectTasks {
     }
 
     // Miscellaneous tasks
+    const rebuildArgs = this.intelliSenseBackend
+      ? this.intelliSenseBackend.rebuildArgs(name)
+      : ['project', 'init', '--ide', this.ide, '--environment', name];
     const initTask = new TaskItem(
       'Rebuild IntelliSense Index',
-      ['project', 'init', '--ide', this.ide, '--environment', name],
+      rebuildArgs,
       'Miscellaneous',
     );
     initTask.multienv = true;
