@@ -99,11 +99,12 @@ export default class ProjectIndexer {
 
     try {
       const backend = this.options.intelliSenseBackend;
+      const selectedEnv = this.observer.getSelectedEnv();
       const args = backend
-        ? backend.rebuildArgs(this.observer.getSelectedEnv())
+        ? backend.rebuildArgs(selectedEnv)
         : ['project', 'init', '--ide', this.options.ide];
-      if (!backend && this.observer.getSelectedEnv()) {
-        args.push('--environment', this.observer.getSelectedEnv());
+      if (!backend && selectedEnv) {
+        args.push('--environment', selectedEnv);
       }
       await getPIOCommandOutput(args, {
         projectDir: this.projectDir,
@@ -121,9 +122,17 @@ export default class ProjectIndexer {
         onProcStderr: (data) => logMessage(data, true),
       });
 
-      // Notify that rebuild is complete
+      // Notify that rebuild is complete (isolated error handling)
       if (this.options.api.onDidRebuildIndex) {
-        await this.options.api.onDidRebuildIndex(this.projectDir);
+        try {
+          await this.options.api.onDidRebuildIndex(this.projectDir);
+        } catch (callbackErr) {
+          console.error(
+            `onDidRebuildIndex callback failed for project ${this.projectDir}:`,
+            callbackErr,
+          );
+          // Don't rethrow - callback failures shouldn't fail the rebuild
+        }
       }
     } catch (err) {
       console.warn(err);
