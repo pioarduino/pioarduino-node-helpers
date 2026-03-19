@@ -7,6 +7,7 @@
  */
 
 import * as core from '../core';
+import { resolveRebuildArgs } from './rebuild-args';
 
 export class ProjectTasks {
   static generalTasks = [
@@ -147,9 +148,10 @@ export class ProjectTasks {
     },
   ];
 
-  constructor(projectDir, ide) {
+  constructor(projectDir, ide, intelliSenseBackend) {
     this.projectDir = projectDir;
     this.ide = ide;
+    this.intelliSenseBackend = intelliSenseBackend;
   }
 
   async getDefaultTasks() {
@@ -184,9 +186,13 @@ export class ProjectTasks {
     }
 
     // Miscellaneous tasks
+    const rebuildArgs = resolveRebuildArgs(name, this.ide, this.intelliSenseBackend);
+    if (name && !rebuildArgs.includes('--environment') && !rebuildArgs.includes('-e')) {
+      rebuildArgs.push('--environment', name);
+    }
     const initTask = new TaskItem(
       'Rebuild IntelliSense Index',
-      ['project', 'init', '--ide', this.ide, '--environment', name],
+      rebuildArgs,
       'Miscellaneous',
     );
     initTask.multienv = true;

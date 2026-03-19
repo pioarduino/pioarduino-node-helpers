@@ -8,6 +8,7 @@
 
 import { getPIOCommandOutput } from '../core';
 import path from 'path';
+import { resolveRebuildArgs } from './rebuild-args';
 import { terminateCmdsInQueue } from '../proc';
 
 export default class ProjectIndexer {
@@ -98,10 +99,12 @@ export default class ProjectIndexer {
     };
 
     try {
-      const args = ['project', 'init', '--ide', this.options.ide];
-      if (this.observer.getSelectedEnv()) {
-        args.push('--environment', this.observer.getSelectedEnv());
-      }
+      const selectedEnv = this.observer.getSelectedEnv();
+      const args = resolveRebuildArgs(
+        selectedEnv,
+        this.options.ide,
+        this.options.intelliSenseBackend,
+      );
       await getPIOCommandOutput(args, {
         projectDir: this.projectDir,
         runInQueue: true,
@@ -117,12 +120,27 @@ export default class ProjectIndexer {
         onProcStdout: (data) => logMessage(data),
         onProcStderr: (data) => logMessage(data, true),
       });
+
+      // Notify that rebuild is complete (isolated error handling)
+      if (this.options.api.onDidRebuildIndex) {
+        Promise.resolve()
+          .then(() => this.options.api.onDidRebuildIndex(this.projectDir))
+          .catch((callbackErr) => {
+            const msg = `onDidRebuildIndex callback failed for project ${this.projectDir}:`;
+            if (this.options.api.onDidNotifyError) {
+              this.options.api.onDidNotifyError(msg, callbackErr);
+            } else {
+              console.error(msg, callbackErr);
+            }
+          });
+      }
     } catch (err) {
       console.warn(err);
-      if (!token && !token.isCancellationRequested) {
+      if (!token || !token.isCancellationRequested) {
         logMessage(err, true);
       }
+    } finally {
+      this._inProgress = false;
     }
-    this._inProgress = false;
   }
 }
