@@ -126,10 +126,12 @@ export default class ProjectIndexer {
         Promise.resolve()
           .then(() => this.options.api.onDidRebuildIndex(this.projectDir))
           .catch((callbackErr) => {
-            console.error(
-              `onDidRebuildIndex callback failed for project ${this.projectDir}:`,
-              callbackErr,
-            );
+            const msg = `onDidRebuildIndex callback failed for project ${this.projectDir}:`;
+            if (this.options.api.onDidNotifyError) {
+              this.options.api.onDidNotifyError(msg, callbackErr);
+            } else {
+              console.error(msg, callbackErr);
+            }
           });
       }
     } catch (err) {
@@ -137,7 +139,8 @@ export default class ProjectIndexer {
       if (!token || !token.isCancellationRequested) {
         logMessage(err, true);
       }
+    } finally {
+      this._inProgress = false;
     }
-    this._inProgress = false;
   }
 }
