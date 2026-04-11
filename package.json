@@ -4,7 +4,7 @@
   "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=25"
   },
   "scripts": {
     "build": "webpack --env build",

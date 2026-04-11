@@ -27,32 +27,22 @@ function log(level, message) {
 
 /**
  * Check if Python version meets compatibility requirements
- * Supports different validation modes for finding existing vs installing new Python
+ * Only Python 3.13.x is accepted
  * @param {string} pythonVersion - Python version string (e.g., "3.13.1")
- * @param {boolean} forInstallation - If true, only allows 3.13.x; if false, allows 3.10-3.13
- * @returns {boolean} True if version is compatible with requirements
+ * @returns {boolean} True if version is 3.13.x
  */
-function isPythonVersionCompatible(pythonVersion, forInstallation = false) {
+function isPythonVersionCompatible(pythonVersion) {
   const versionParts = pythonVersion.split('.');
   const major = parseInt(versionParts[0], 10);
   const minor = parseInt(versionParts[1], 10);
 
-  if (major !== 3) {
-    return false;
-  }
-
-  if (forInstallation) {
-    return minor === 13; // Only 3.13.x for new installations
-  } else {
-    return minor >= 10 && minor <= 13; // 3.10-3.13 for finding existing installations
-  }
+  return major === 3 && minor === 13;
 }
 
 /**
- * Search for existing Python executable in system PATH with version validation
- * Scans through PATH directories to find compatible Python installations.
- * Accepts Python versions 3.10 through 3.13. Returns first valid installation found.
- * @returns {Promise<string|null>} Path to first valid Python executable or null if not found
+ * Search for existing Python 3.13 executable in system PATH with version validation
+ * Scans through PATH directories to find a Python 3.13 installation.
+ * @returns {Promise<string|null>} Path to first valid Python 3.13 executable or null if not found
  * @throws {Error} If distutils module is missing in found Python installation
  */
 export async function findPythonExecutable() {
@@ -60,7 +50,7 @@ export async function findPythonExecutable() {
   const envPath = process.env.PLATFORMIO_PATH || process.env.PATH;
   const errors = [];
 
-  log('info', 'Searching for compatible Python installation (3.10-3.13)');
+  log('info', 'Searching for Python 3.13 installation');
 
   // Search through all PATH locations for Python executables with early exit on first match
   for (const location of envPath.split(path.delimiter)) {
@@ -88,15 +78,14 @@ export async function findPythonExecutable() {
     }
   }
 
-  log('info', 'No compatible system Python found, will install Python 3.13');
+  log('info', 'No Python 3.13 found on system, will install via UV');
   return null;
 }
 
 /**
- * Validate Python executable version and basic functionality
- * This function is used for FINDING existing installations, not for installation validation
+ * Validate Python executable version - only Python 3.13.x is accepted
  * @param {string} executable - Full path to Python executable
- * @returns {Promise<boolean>} True if Python version is acceptable (3.10-3.13)
+ * @returns {Promise<boolean>} True if Python version is 3.13.x
  */
 async function isValidPythonVersion(executable) {
   try {
@@ -112,7 +101,7 @@ async function isValidPythonVersion(executable) {
       return false;
     }
 
-    return isPythonVersionCompatible(versionMatch[1], false); // Allow 3.10-3.13 for finding existing
+    return isPythonVersionCompatible(versionMatch[1]);
   } catch {
     return false;
   }

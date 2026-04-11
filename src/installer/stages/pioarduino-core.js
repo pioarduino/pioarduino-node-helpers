@@ -299,13 +299,13 @@ export default class pioarduinoCoreStage extends BaseStage {
         const major = parseInt(versionMatch[1]);
         const minor = parseInt(versionMatch[2]);
 
-        // Check if Python >= 3.9
-        if (major === 3 && minor >= 9) {
+        // Only Python 3.13.x is accepted
+        if (major === 3 && minor === 13) {
           console.info(`Python ${versionMatch[0]} detected (offline check)`);
           return versionMatch[0];
         } else {
           throw new Error(
-            `Python ${versionMatch[0]} found, but Python >= 3.9 required`,
+            `Python ${versionMatch[0]} found, but Python 3.13 is required`,
           );
         }
       }
@@ -325,8 +325,8 @@ export default class pioarduinoCoreStage extends BaseStage {
       const coreState = core.getCoreState();
       // If we have a valid Python version in core state, check it
       if (coreState.python_version) {
-        if (!/^3\.(9|[1-9][0-9]+)\./.test(coreState.python_version)) {
-          throw new Error('Python < 3.9 in penv (Python >= 3.9 required)');
+        if (!/^3\.13\./.test(coreState.python_version)) {
+          throw new Error('Python is not 3.13 in penv (Python 3.13 required)');
         }
         // Python version is valid, no need to upgrade
         return false;
@@ -338,7 +338,7 @@ export default class pioarduinoCoreStage extends BaseStage {
       return false;
     } catch (err) {
       // If Python directory doesn't exist or version check fails, it needs to be installed/upgraded
-      if (err.message.includes('Python < 3.9')) {
+      if (err.message.includes('Python is not 3.13')) {
         console.info('Upgrading built-in Python...');
         return true;
       }
@@ -392,9 +392,7 @@ export default class pioarduinoCoreStage extends BaseStage {
     } while (status !== this.params.pythonPrompt.STATUS_ABORT);
 
     this.status = BaseStage.STATUS_FAILED;
-    throw new Error(
-      'Can not find Python Interpreter. Please install Python 3.9 or above',
-    );
+    throw new Error('Can not find Python Interpreter. Please install Python 3.13');
   }
 
   async install(withProgress = undefined) {

@@ -21,10 +21,10 @@ jobs:
         run: |
           rm -rf package-lock.json
           rm -rf dist
-      - name: install node v22
+      - name: install node v25
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 25.4.0
           registry-url: 'https://registry.npmjs.org'
       - name: Update npm to latest
         run: npm install -g npm@latest
