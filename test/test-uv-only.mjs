@@ -85,15 +85,32 @@ async function installUV() {
   try {
     if (IS_WINDOWS) {
       const script = await fetchText('https://astral.sh/uv/install.ps1');
-      await execAsync(
-        `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '`"')}"`,
-        { timeout: 120000 },
+      const tmpScript = path.join(
+        process.env.TEMP || process.env.TMP || 'C:\\Temp',
+        `uv-install-${Date.now()}.ps1`,
       );
+      fs.writeFileSync(tmpScript, script, 'utf-8');
+      try {
+        await execAsync(
+          `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`,
+          { timeout: 120000 },
+        );
+      } finally {
+        try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
+      }
     } else {
       const script = await fetchText('https://astral.sh/uv/install.sh');
-      await execAsync(`sh -c '${script.replace(/'/g, "'\\''")}' `, {
-        timeout: 120000,
-      });
+      const tmpScript = path.join(
+        process.env.TMPDIR || '/tmp',
+        `uv-install-${Date.now()}.sh`,
+      );
+      fs.writeFileSync(tmpScript, script, 'utf-8');
+      fs.chmodSync(tmpScript, 0o755);
+      try {
+        await execAsync(`sh "${tmpScript}"`, { timeout: 120000 });
+      } finally {
+        try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
+      }
     }
 
     console.log('✓ UV installation completed');
