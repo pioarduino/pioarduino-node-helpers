@@ -102,17 +102,16 @@ async function runTests() {
     }
     console.log();
 
+    const packageSpec = 'pioarduino';
     // Test 4: Install PlatformIO using UV pip into the venv
     console.log('Test 4: Installing PlatformIO with UV pip into venv...');
     console.log('  This may take several minutes...');
     try {
       const startTime = Date.now();
-      const { stdout } = await execAsync(
-        `"${venvUv}" pip install "--python=${venvPy}" platformio`,
-        {
-          timeout: 600000, // 10 minutes
-          maxBuffer: 50 * 1024 * 1024,
-        }
+      const { stdout } = await execFileAsync(
+        venvUv,
+        ['pip', 'install', `--python=${venvPy}`, packageSpec],
+        { timeout: 600000, maxBuffer: 50 * 1024 * 1024 },
       );
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
       pass(`PlatformIO installed in ${duration}s`);
