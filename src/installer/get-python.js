@@ -120,68 +120,6 @@ function getUVExecutablePath() {
 }
 
 /**
- * Check if UV (astral-sh/uv) package manager is available on the system
- * UV is a fast Python package installer and resolver written in Rust
- * Checks both PATH and the default installation location
- * @returns {Promise<boolean>} True if UV is installed and accessible
- */
-async function isUVAvailable() {
-  // First check if UV is in PATH
-  try {
-    await execFile('uv', ['--version'], { timeout: 5000 });
-    log('info', 'UV is available on system PATH');
-    return true;
-  } catch {
-    // UV not in PATH, check default installation location
-    try {
-      const uvPath = getUVExecutablePath();
-      await execFile(uvPath, ['--version'], { timeout: 5000 });
-      log('info', `UV found at: ${uvPath}`);
-      return true;
-    } catch {
-      log('info', 'UV not found on system');
-      return false;
-    }
-  }
-}
-
-/**
- * Install UV package manager using official installation scripts
- * Downloads and runs platform-specific installer from astral.sh
- * @returns {Promise<void>}
- * @throws {Error} If UV installation fails
- */
-async function installUV() {
-  log('info', 'Installing UV package manager');
-
-  try {
-    if (proc.IS_WINDOWS) {
-      // Windows: Use PowerShell with official installer script
-      await execFile(
-        'powershell',
-        [
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          'irm https://astral.sh/uv/install.ps1 | iex',
-        ],
-        { timeout: 120000 },
-      );
-    } else {
-      // Unix/Linux/macOS: Use shell with curl installer
-      await execFile('sh', ['-c', 'curl -LsSf https://astral.sh/uv/install.sh | sh'], {
-        timeout: 120000,
-      });
-    }
-
-    log('info', 'UV installation completed');
-  } catch (err) {
-    throw new Error(`Failed to install UV: ${err.message}`);
-  }
-}
-
-/**
  * Get the UV command to use - either from PATH or direct path
  * @returns {Promise<string>} UV command or path to use
  */
@@ -206,12 +144,7 @@ async function getUVCommand() {
 async function ensurePythonWithUV(pythonVersion = '3.13') {
   log('info', `Ensuring Python ${pythonVersion} is available via UV`);
 
-  // Ensure UV is available, install if necessary
-  if (!(await isUVAvailable())) {
-    await installUV();
-  }
-
-  // Get the correct UV command (from PATH or direct path)
+  // UV is expected to be installed by get-pioarduino.js
   const uvCommand = await getUVCommand();
   log('info', `Using UV command: ${uvCommand}`);
 
@@ -328,8 +261,6 @@ async function getPythonExecutablePath(pythonVersion = '3.13') {
 // Export utility functions for external use
 export {
   isPythonVersionCompatible,
-  isUVAvailable,
-  installUV,
   getPythonExecutablePath,
   getUVCommand,
 };
