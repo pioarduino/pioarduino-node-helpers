@@ -412,28 +412,30 @@ export default class pioarduinoCoreStage extends BaseStage {
     }
     withProgress('Preparing for installation', 10);
     try {
-      // Step 1: Find any available Python for bootstrapping
-      const bootstrapPython = await this.whereIsPython({ prompt: true });
-      console.info('Using bootstrap Python:', bootstrapPython);
-
-      // Step 2: Run pioinstaller to install UV
+      // Step 1: Install UV via pioinstaller (using system Python if available)
       withProgress('Installing UV package manager', 20);
-      await callInstallerScript(bootstrapPython, ['install']);
+      const systemPython = await findPythonExecutable();
+      if (systemPython) {
+        console.info('Using system Python to bootstrap UV:', systemPython);
+        await callInstallerScript(systemPython, ['install']);
+      }
 
-      // Step 3: Use UV to install Python 3.13
-      let pythonToUse = bootstrapPython;
+      // Step 2: Install Python 3.13 using UV
+      let pythonToUse;
       if (this.params.useBuiltinPython) {
         withProgress('Installing Python 3.13 using UV', 40);
         pythonToUse = await installPortablePython();
         console.info('UV-managed Python installed at:', pythonToUse);
+      } else {
+        pythonToUse = await this.whereIsPython({ prompt: true });
       }
 
-      // Step 4: Set up penv with Python 3.13
+      // Step 3: Set up penv with the resolved Python
       withProgress('Creating virtual environment and installing PlatformIO', 60);
       const installOutput = await callInstallerScript(pythonToUse, ['install']);
       console.info('PlatformIO installation output:', installOutput);
 
-      // Step 5: Load core state
+      // Step 4: Load core state
       withProgress('Loading pioarduino Core state', 80);
       await this.loadCoreState();
 
