@@ -11,6 +11,7 @@
  */
 
 import { installPortablePython, getPythonExecutablePath } from '../src/installer/get-python.js';
+import { resolveUV } from './uv-helper.mjs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -75,7 +76,8 @@ async function main() {
       } catch {}
       
       // Create venv with UV
-      await execAsync(`uv venv --python "${pythonPath}" "${testVenvDir}"`, {
+      const uvExe = await resolveUV();
+      await execAsync(`"${uvExe}" venv --python "${pythonPath}" "${testVenvDir}"`, {
         timeout: 60000,
       });
       console.log(`✓ UV venv created at: ${testVenvDir}`);

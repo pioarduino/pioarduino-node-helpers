@@ -10,6 +10,7 @@ import * as core from '../../core';
 import * as misc from '../../misc';
 import * as proc from '../../proc';
 import {
+  createVenvWithUv,
   findPythonExecutable,
   getPythonExecutablePath,
   getUvExecutable,
@@ -230,7 +231,7 @@ export default class pioarduinoCoreStage extends BaseStage {
     // Resolve python and platformio executables
     const pythonExe = isGlobal
       ? await this.whereIsPython()
-      : path.join(penvBinDir, proc.IS_WINDOWS ? 'python.exe' : 'python3');
+      : await pioarduinoCoreStage.findBuiltInPythonExe();
     const platformioExe = isGlobal
       ? proc.whereIsProgram(proc.IS_WINDOWS ? 'platformio.exe' : 'platformio')
       : path.join(penvBinDir, proc.IS_WINDOWS ? 'platformio.exe' : 'platformio');
@@ -293,8 +294,13 @@ export default class pioarduinoCoreStage extends BaseStage {
 
     // Validate version spec if provided
     if (this.params.pioCoreVersionSpec && coreVersion) {
-      const coerced = semver.coerce(coreVersion);
-      if (coerced && !semver.satisfies(coerced, this.params.pioCoreVersionSpec)) {
+      const validVersion = semver.valid(coreVersion) || semver.coerce(coreVersion);
+      if (
+        validVersion &&
+        !semver.satisfies(validVersion, this.params.pioCoreVersionSpec, {
+          includePrerelease: true,
+        })
+      ) {
         throw new Error(
           `pioarduino Core version ${coreVersion} does not match version requirements ${this.params.pioCoreVersionSpec}.`,
         );
@@ -544,7 +550,15 @@ export default class pioarduinoCoreStage extends BaseStage {
         pythonToUse = await installPortablePython();
         console.info('Python installed at:', pythonToUse);
       } else {
-        pythonToUse = await this.whereIsPython({ prompt: true });
+        // Even without built-in Python, create a venv at penvDir so PlatformIO
+        // lands in penvBinDir (required by loadCoreState when useBuiltinPIOCore=true)
+        const systemPython = await this.whereIsPython({ prompt: true });
+        withProgress('Creating virtual environment with system Python', 40);
+        const penvDir = core.getEnvDir();
+        await createVenvWithUv(uvExe, penvDir, systemPython);
+        const penvBinDir = pioarduinoCoreStage.getBuiltInPythonBinDir();
+        pythonToUse = path.join(penvBinDir, proc.IS_WINDOWS ? 'python.exe' : 'python3');
+        console.info('Venv created with system Python, Python at:', pythonToUse);
       }
 
       // Step 3: Install PlatformIO Core using UV

@@ -11,9 +11,6 @@ import { resolveUV } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 
-// Determine if Windows
-const IS_WINDOWS = process.platform === 'win32';
-
 let testsPassed = 0;
 let testsFailed = 0;
 

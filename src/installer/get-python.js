@@ -181,9 +181,16 @@ async function installUvDownload(cacheDir) {
     // Verify SHA256
     const shaUrl = `${url}.sha256`;
     const shaResponse = await got(shaUrl, { timeout: { request: 30000 } });
-    const expectedHash = shaResponse.body.split(/\s+/)[0].trim().toLowerCase();
+    const rawHash = shaResponse.body.split(/\s+/)[0].trim().toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(rawHash)) {
+      log(
+        'warn',
+        `Invalid SHA256 response (possible CDN error page): ${shaResponse.body.slice(0, 100)}`,
+      );
+      return null;
+    }
     const actualHash = await sha256Hex(archivePath);
-    if (actualHash !== expectedHash) {
+    if (actualHash !== rawHash) {
       log('warn', 'uv archive SHA256 mismatch');
       return null;
     }
@@ -236,22 +243,31 @@ async function installUvDownload(cacheDir) {
 }
 
 async function installUvWithScript(cacheDir) {
-  let tempScriptPath = null;
+  let tmpScriptDir = null;
   try {
     fs.mkdirSync(cacheDir, { recursive: true });
     const uvDest = path.join(cacheDir, UV_EXE);
     const env = { ...process.env, UV_UNMANAGED_INSTALL: cacheDir };
+
+    tmpScriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uv-install-'));
 
     if (proc.IS_WINDOWS) {
       log('info', 'Installing uv using official Windows installer');
       const scriptResponse = await got(UV_INSTALL_SCRIPT_WINDOWS, {
         timeout: { request: 30000 },
       });
-      tempScriptPath = path.join(cacheDir, `uv-install-${Date.now()}.ps1`);
+      const tempScriptPath = path.join(tmpScriptDir, 'install.ps1');
       fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
       await execFile(
         'pwsh',
-        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'ByPass', '-File', tempScriptPath],
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'ByPass',
+          '-File',
+          tempScriptPath,
+        ],
         { timeout: 900000, env },
       );
     } else {
@@ -259,7 +275,7 @@ async function installUvWithScript(cacheDir) {
       const scriptResponse = await got(UV_INSTALL_SCRIPT_UNIX, {
         timeout: { request: 30000 },
       });
-      tempScriptPath = path.join(cacheDir, `uv-install-${Date.now()}.sh`);
+      const tempScriptPath = path.join(tmpScriptDir, 'install.sh');
       fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
       fs.chmodSync(tempScriptPath, 0o755);
       await execFile('sh', [tempScriptPath], { timeout: 900000, env });
@@ -275,9 +291,9 @@ async function installUvWithScript(cacheDir) {
   } catch (err) {
     log('warn', `Failed to install uv with official script: ${err.message}`);
   } finally {
-    if (tempScriptPath) {
+    if (tmpScriptDir) {
       try {
-        fs.unlinkSync(tempScriptPath);
+        fs.rmSync(tmpScriptDir, { recursive: true, force: true });
       } catch {
         // ignore cleanup errors
       }
@@ -355,7 +371,7 @@ export async function getUvExecutable() {
 // Venv Creation with UV (adapted from penv.py create_venv_with_uv)
 // ============================================================
 
-export async function createVenvWithUv(uvExe, penvDir) {
+export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
   // Remove existing directory if it exists
   if (fs.existsSync(penvDir)) {
     fs.rmSync(penvDir, { recursive: true, force: true });
@@ -371,11 +387,12 @@ export async function createVenvWithUv(uvExe, penvDir) {
 
   try {
     // uv venv creates the venv and automatically downloads Python if needed
-    const result = await execFile(
-      uvExe,
-      ['venv', penvDir, '--python', PYTHON_VERSION, '--python-preference', 'managed'],
-      { timeout: 900000 },
-    );
+    // When pythonSpec is an absolute path, omit --python-preference (managed only applies to version specs)
+    const venvArgs = ['venv', penvDir, '--python', pythonSpec || PYTHON_VERSION];
+    if (!pythonSpec || !path.isAbsolute(pythonSpec)) {
+      venvArgs.push('--python-preference', 'managed');
+    }
+    const result = await execFile(uvExe, venvArgs, { timeout: 900000 });
 
     log('info', `uv venv output: ${result.stdout || ''} ${result.stderr || ''}`);
 
@@ -384,7 +401,7 @@ export async function createVenvWithUv(uvExe, penvDir) {
     if (fs.existsSync(expectedPython)) {
       log(
         'info',
-        `Successfully created venv at ${penvDir} with Python ${PYTHON_VERSION}`,
+        `Successfully created venv at ${penvDir} with Python ${pythonSpec || PYTHON_VERSION}`,
       );
       return penvDir;
     }
@@ -482,7 +499,7 @@ function checkPythonEnvironment(executable) {
 
 export async function findPythonExecutable() {
   const exenames = proc.IS_WINDOWS ? ['python.exe'] : ['python3', 'python'];
-  const envPath = process.env.PLATFORMIO_PATH || process.env.PATH;
+  const envPath = process.env.PLATFORMIO_PATH || process.env.PATH || '';
 
   log('info', 'Searching for Python 3.13 installation');
 

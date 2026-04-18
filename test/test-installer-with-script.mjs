@@ -108,7 +108,7 @@ async function main() {
   // Test 8: Check if UV is installed in penv
   await runTest('Test 8: Checking if UV is installed in penv', async () => {
     const uvExe = await resolveUV();
-    const { stdout } = await execAsync(`"${uvExe}" pip list --python ${path.join(penvDir, 'bin', 'python')}`);
+    const { stdout } = await execAsync(`"${uvExe}" pip list --python "${path.join(penvDir, 'bin', 'python')}"`);
     
     if (!stdout.includes('uv ')) {
       throw new Error('UV not found in penv!');

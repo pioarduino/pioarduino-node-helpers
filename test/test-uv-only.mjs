@@ -20,7 +20,7 @@ const execAsync = promisify(exec);
 async function isUVAvailable() {
   // First check if UV is in PATH
   try {
-    await execAsync('uv --version');
+    await execAsync(`${UV_EXE} --version`);
     console.log('✓ UV is available on system PATH');
     return true;
   } catch {
@@ -42,19 +42,24 @@ async function isUVAvailable() {
  */
 function fetchText(url) {
   return new Promise((resolve, reject) => {
-    const get = (u) =>
-      https.get(u, { headers: { 'User-Agent': 'node' } }, (res) => {
+    const get = (u) => {
+      const req = https.get(u, { headers: { 'User-Agent': 'node' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume(); // consume redirect response to free the socket
           return get(res.headers.location);
         }
         if (res.statusCode !== 200) {
+          res.resume();
           return reject(new Error(`HTTP ${res.statusCode} for ${u}`));
         }
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
         res.on('end', () => resolve(Buffer.concat(chunks).toString()));
         res.on('error', reject);
-      }).on('error', reject);
+      });
+      req.setTimeout(30000, () => req.destroy(new Error('fetch timeout')));
+      req.on('error', reject);
+    };
     get(url);
   });
 }
@@ -117,8 +122,8 @@ async function installUV() {
  */
 async function getUVCommand() {
   try {
-    await execAsync('uv --version');
-    return 'uv';
+    await execAsync(`${UV_EXE} --version`);
+    return UV_EXE;
   } catch {
     return getUVExePath();
   }

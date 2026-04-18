@@ -125,7 +125,7 @@ async function main() {
   await runTest('Test 8: Checking if UV is in penv', async () => {
     const uvExe = await resolveUV();
     const { stdout } = await execAsync(
-      `"${uvExe}" pip list --python ${path.join(penvDir, 'bin', 'python')}`
+      `"${uvExe}" pip list --python "${path.join(penvDir, 'bin', 'python')}"`
     );
     
     const lines = stdout.split('\n');

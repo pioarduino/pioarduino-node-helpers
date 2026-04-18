@@ -7,7 +7,6 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
-import fs from 'node:fs';
 
 const execAsync = promisify(exec);
 
@@ -18,8 +17,7 @@ export const UV_EXE = IS_WINDOWS ? 'uv.exe' : 'uv';
  * Returns ~/.platformio/.cache — the single location for uv on all platforms.
  */
 export function getUVCacheDir() {
-  const homeDir = process.env.USERPROFILE || process.env.HOME || os.homedir();
-  return path.join(homeDir, '.platformio', '.cache');
+  return path.join(os.homedir(), '.platformio', '.cache');
 }
 
 /**
@@ -34,16 +32,18 @@ export function getUVExePath() {
  * Throws if uv is not found anywhere.
  */
 export async function resolveUV() {
-  // 1. Try PATH
+  // 1. Try PATH — use where/which to get the absolute path
   try {
-    await execAsync(`${UV_EXE} --version`);
-    return UV_EXE;
+    const probe = IS_WINDOWS ? `where ${UV_EXE}` : `which ${UV_EXE}`;
+    const { stdout } = await execAsync(probe, { timeout: 5000 });
+    const found = stdout.trim().split('\n')[0].trim();
+    if (found) return found;
   } catch { /* not in PATH */ }
 
   // 2. Try cache dir
   const cached = getUVExePath();
   try {
-    await execAsync(`"${cached}" --version`);
+    await execAsync(`"${cached}" --version`, { timeout: 5000 });
     return cached;
   } catch { /* not cached */ }
 

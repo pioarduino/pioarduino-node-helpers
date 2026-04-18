@@ -107,6 +107,7 @@ async function runTests() {
     pass(`Venv created at ${testVenvDir}`);
   } catch (err) {
     fail('Failed to create venv', err);
+    await fs.rm(testVenvDir, { recursive: true, force: true }).catch(() => {});
     return false;
   }
   console.log();
@@ -123,6 +124,7 @@ async function runTests() {
     pass(`Venv Python version: ${version}`);
   } catch (err) {
     fail('Venv Python verification failed', err);
+    await fs.rm(testVenvDir, { recursive: true, force: true }).catch(() => {});
     return false;
   }
   console.log();
