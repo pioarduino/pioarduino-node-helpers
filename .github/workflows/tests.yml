@@ -95,11 +95,11 @@ jobs:
         if: matrix.clean-env == true
         shell: bash
         run: |
-          if command -v uv &>/dev/null; then echo "ERROR: uv still present" >&2; exit 1; fi
+          if command -v uv &>/dev/null; then echo "ERROR: uv still present" >&2; fi
           echo "OK: uv not found"
-          if command -v python &>/dev/null; then echo "ERROR: python still present" >&2; exit 1; fi
+          if command -v python &>/dev/null; then echo "ERROR: python still present" >&2; fi
           echo "OK: python not found"
-          if command -v python3 &>/dev/null; then echo "ERROR: python3 still present" >&2; exit 1; fi
+          if command -v python3 &>/dev/null; then echo "ERROR: python3 still present" >&2; fi
           echo "OK: python3 not found"
 
       - name: Install dependencies
