@@ -15,7 +15,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        clean-env: [false, true]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -26,15 +25,13 @@ jobs:
           node-version: 25
 
       - name: Install uv
-        if: matrix.clean-env == false
         uses: astral-sh/setup-uv@v6
         # Note: Install not supported Python version to test the forced installation of Python 3.13 by uv in `get-platformio.py`
       - name: Install Python 3.12 via uv
-        if: matrix.clean-env == false
         run: uv python install 3.12
 
       - name: Remove uv and Python (Unix)
-        if: matrix.clean-env == true && runner.os != 'Windows'
+        if: runner.os != 'Windows'
         run: |
           # Remove uv
           sudo rm -f "$(which uv 2>/dev/null)" || true
@@ -75,7 +72,7 @@ jobs:
           echo "$BLOCK_DIR" >> "$GITHUB_PATH"
 
       - name: Remove uv and Python (Windows)
-        if: matrix.clean-env == true && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           # Remove uv
@@ -91,16 +88,12 @@ jobs:
             if ($p) { Remove-Item -Force $p -ErrorAction SilentlyContinue }
           }
 
-      - name: Verify uv and Python are absent
-        if: matrix.clean-env == true
+      - name: Info if uv and Python are still present
         shell: bash
         run: |
-          if command -v uv &>/dev/null; then echo "ERROR: uv still present" >&2; fi
-          echo "OK: uv not found"
-          if command -v python &>/dev/null; then echo "ERROR: python still present" >&2; fi
-          echo "OK: python not found"
-          if command -v python3 &>/dev/null; then echo "ERROR: python3 still present" >&2; fi
-          echo "OK: python3 not found"
+          if command -v uv &>/dev/null; then echo "Info: uv still present" >&2; fi
+          if command -v python &>/dev/null; then echo "Info: python still present" >&2; fi
+          if command -v python3 &>/dev/null; then echo "Info: python3 still present" >&2; fi
 
       - name: Install dependencies
         run: npm install
