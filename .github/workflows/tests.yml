@@ -79,10 +79,20 @@ jobs:
           # Remove python.org framework installer (macOS)
           sudo rm -rf /Library/Frameworks/Python.framework || true
 
-          # Exhaustively remove any remaining python3/python from PATH
+          # Exhaustively remove any remaining python/python3 from PATH
           for exe in python python3 python3.9 python3.10 python3.11 python3.12 python3.13 python3.14; do
             while p=$(which "$exe" 2>/dev/null); do sudo rm -f "$p" || break; done
           done
+
+          # Shadow any SIP-protected /usr/bin/python* that can't be deleted (macOS)
+          # by prepending a directory of dummy scripts to PATH
+          BLOCK_DIR="$HOME/.no-python-bin"
+          mkdir -p "$BLOCK_DIR"
+          for exe in python python3 python3.9 python3.10 python3.11 python3.12 python3.13 python3.14; do
+            printf '#!/bin/sh\nexit 127\n' > "$BLOCK_DIR/$exe"
+            chmod +x "$BLOCK_DIR/$exe"
+          done
+          echo "$BLOCK_DIR" >> "$GITHUB_PATH"
 
       - name: Remove uv and Python (Windows)
         if: runner.os == 'Windows'
