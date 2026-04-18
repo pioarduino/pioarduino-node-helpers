@@ -10,15 +10,10 @@ import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getUVExePath } from './uv-helper.mjs';
+import { resolveUV, IS_WINDOWS, UV_EXE, PYTHON_EXE, BIN_DIR } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-
-const IS_WINDOWS = process.platform === 'win32';
-const UV_EXE = IS_WINDOWS ? 'uv.exe' : 'uv';
-const PYTHON_EXE = IS_WINDOWS ? 'python.exe' : 'python3';
-const BIN_DIR = IS_WINDOWS ? 'Scripts' : 'bin';
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -35,18 +30,7 @@ function fail(message, error) {
 }
 
 async function findUv() {
-  // Always prefer the cache dir location; fall back to PATH
-  const cached = getUVExePath();
-  try {
-    await fs.access(cached);
-    return cached;
-  } catch { /* not cached yet */ }
-  try {
-    await execAsync(`${UV_EXE} --version`);
-    return UV_EXE;
-  } catch {
-    throw new Error(`uv not found. Expected at: ${cached}`);
-  }
+  return resolveUV();
 }
 
 async function runTests() {
@@ -112,9 +96,27 @@ async function runTests() {
   }
   console.log();
 
-  // Test 4: Verify venv Python version
-  console.log('Test 4: Verifying venv Python...');
+  // Test 4: Install uv into venv (mirrors createVenvWithUv production code)
+  console.log('Test 4: Installing uv into venv via uv pip install...');
   const venvPython = path.join(testVenvDir, BIN_DIR, PYTHON_EXE);
+  const venvUv = path.join(testVenvDir, BIN_DIR, UV_EXE);
+  try {
+    await execFileAsync(
+      uvExe,
+      ['pip', 'install', 'uv>=0.1.0', `--python=${venvPython}`],
+      { timeout: 120000 },
+    );
+    await fs.access(venvUv);
+    pass(`uv installed into venv: ${venvUv}`);
+  } catch (err) {
+    fail('Failed to install uv into venv', err);
+    await fs.rm(testVenvDir, { recursive: true, force: true }).catch(() => {});
+    return false;
+  }
+  console.log();
+
+  // Test 5: Verify venv Python version
+  console.log('Test 5: Verifying venv Python...');
   try {
     const { stdout } = await execAsync(`"${venvPython}" --version`, { timeout: 10000 });
     const version = stdout.trim();
@@ -129,8 +131,8 @@ async function runTests() {
   }
   console.log();
 
-  // Test 5: Verify venv Python executes scripts
-  console.log('Test 5: Checking venv Python script execution...');
+  // Test 6: Verify venv Python executes scripts
+  console.log('Test 6: Checking venv Python script execution...');
   try {
     await execAsync(`"${venvPython}" -c "import sys; print(sys.version)"`, { timeout: 10000 });
     pass('Venv Python can execute scripts');
@@ -139,8 +141,18 @@ async function runTests() {
   }
   console.log();
 
-  // Test 6: Cleanup
-  console.log('Test 6: Cleaning up...');
+  // Test 7: Verify uv in venv works
+  console.log('Test 7: Verifying uv in venv works...');
+  try {
+    const { stdout } = await execAsync(`"${venvUv}" --version`, { timeout: 10000 });
+    pass(`Venv uv version: ${stdout.trim()}`);
+  } catch (err) {
+    fail('Venv uv not functional', err);
+  }
+  console.log();
+
+  // Test 8: Cleanup
+  console.log('Test 8: Cleaning up...');
   try {
     await fs.rm(testVenvDir, { recursive: true, force: true });
     pass('Test venv cleaned up');

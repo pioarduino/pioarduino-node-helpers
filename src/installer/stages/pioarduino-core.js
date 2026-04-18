@@ -16,6 +16,7 @@ import {
   getUvExecutable,
   installPlatformIOWithUv,
   installPortablePython,
+  moveUvToPenv,
 } from '../get-python';
 
 import BaseStage from './base';
@@ -540,26 +541,30 @@ export default class pioarduinoCoreStage extends BaseStage {
     try {
       // Step 1: Install UV without Python (direct binary download)
       withProgress('Installing UV package manager', 20);
-      const uvExe = await getUvExecutable();
+      let uvExe = await getUvExecutable();
       console.info('UV available at:', uvExe);
 
       // Step 2: Create venv with Python 3.13 using UV or find system Python
       let pythonToUse;
       if (this.params.useBuiltinPython) {
         withProgress('Creating virtual environment with Python 3.13', 40);
-        pythonToUse = await installPortablePython();
+        pythonToUse = await installPortablePython(); // also moves UV to penv
         console.info('Python installed at:', pythonToUse);
       } else {
         // Even without built-in Python, create a venv at penvDir so PlatformIO
         // lands in penvBinDir (required by loadCoreState when useBuiltinPIOCore=true)
         const systemPython = await this.whereIsPython({ prompt: true });
         withProgress('Creating virtual environment with system Python', 40);
-        const penvDir = core.getEnvDir();
-        await createVenvWithUv(uvExe, penvDir, systemPython);
+        const venvPenvDir = core.getEnvDir();
+        await createVenvWithUv(uvExe, venvPenvDir, systemPython);
+        await moveUvToPenv();
         const penvBinDir = pioarduinoCoreStage.getBuiltInPythonBinDir();
         pythonToUse = path.join(penvBinDir, proc.IS_WINDOWS ? 'python.exe' : 'python3');
         console.info('Venv created with system Python, Python at:', pythonToUse);
       }
+
+      // Re-resolve UV: it may have moved from cache to penv/bin
+      uvExe = await getUvExecutable();
 
       // Step 3: Install PlatformIO Core using UV
       withProgress('Installing PlatformIO Core', 60);

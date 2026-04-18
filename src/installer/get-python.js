@@ -337,7 +337,17 @@ export async function getUvExecutable() {
     return pathUv;
   }
 
-  // 2. Check cached uv in ~/.platformio/.cache/
+  // 2. Check penv/bin (permanent post-install location)
+  const penvUv = path.join(core.getEnvDir(), BIN_DIR, UV_EXE);
+  if (fs.existsSync(penvUv)) {
+    if (await validateUv(penvUv)) {
+      log('info', `Found uv in penv: ${penvUv}`);
+      return penvUv;
+    }
+    log('info', 'penv uv not usable, falling through to cache');
+  }
+
+  // 3. Check cached uv in ~/.platformio/.cache/ (bootstrap location)
   const cacheDir = core.getCacheDir();
   const cachedUv = path.join(cacheDir, UV_EXE);
   if (fs.existsSync(cachedUv)) {
@@ -348,14 +358,14 @@ export async function getUvExecutable() {
     log('info', 'Cached uv not usable, reinstalling');
   }
 
-  // 3. Primary: official installer script via got (no external tools needed)
+  // 4. Primary: official installer script via got (no external tools needed)
   let uvExe = await installUvWithScript(cacheDir);
   if (uvExe && (await validateUv(uvExe))) {
     log('info', `uv installed at ${uvExe}`);
     return uvExe;
   }
 
-  // 4. Fallback: direct binary download with SHA256 verification
+  // 5. Fallback: direct binary download with SHA256 verification
   uvExe = await installUvDownload(cacheDir);
   if (uvExe && (await validateUv(uvExe))) {
     log('info', `uv downloaded at ${uvExe}`);
@@ -365,6 +375,47 @@ export async function getUvExecutable() {
   throw new Error(
     'Failed to install uv. Please check internet connection and try again.',
   );
+}
+
+// ============================================================
+// Clean up UV bootstrap cache after installation
+// ============================================================
+
+export async function moveUvToPenv() {
+  const cacheDir = core.getCacheDir();
+  const cacheUvPath = path.join(cacheDir, UV_EXE);
+
+  // Remove bootstrap UV binary from cache (uv is now in penv/bin via pip install)
+  if (fs.existsSync(cacheUvPath)) {
+    try {
+      fs.unlinkSync(cacheUvPath);
+      log('info', `Removed bootstrap uv from cache: ${cacheUvPath}`);
+    } catch (err) {
+      log('warn', `Could not remove cached uv: ${err.message}`);
+    }
+  }
+
+  // Also remove uvx if present
+  const cacheUvxPath = path.join(cacheDir, proc.IS_WINDOWS ? 'uvx.exe' : 'uvx');
+  if (fs.existsSync(cacheUvxPath)) {
+    try {
+      fs.unlinkSync(cacheUvxPath);
+      log('info', `Removed bootstrap uvx from cache: ${cacheUvxPath}`);
+    } catch (err) {
+      log('warn', `Could not remove cached uvx: ${err.message}`);
+    }
+  }
+
+  // Clean up the uv/ installer-metadata subdirectory in cache
+  const uvSubdir = path.join(cacheDir, 'uv');
+  try {
+    if (fs.statSync(uvSubdir).isDirectory()) {
+      fs.rmSync(uvSubdir, { recursive: true, force: true });
+      log('info', `Removed uv installer cache directory: ${uvSubdir}`);
+    }
+  } catch {
+    // nothing to clean up
+  }
 }
 
 // ============================================================
@@ -403,6 +454,17 @@ export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
         'info',
         `Successfully created venv at ${penvDir} with Python ${pythonSpec || PYTHON_VERSION}`,
       );
+
+      // Install uv into the venv using uv itself — places uv binary in penv/bin
+      try {
+        await execFile(uvExe, ['pip', 'install', 'uv>=0.1.0', `--python=${expectedPython}`], {
+          timeout: 120000,
+        });
+        log('info', 'uv installed into penv via uv pip install');
+      } catch (uvInstallErr) {
+        log('warn', `Could not install uv into penv: ${uvInstallErr.message}`);
+      }
+
       return penvDir;
     }
 
@@ -546,7 +608,9 @@ export async function installPortablePython() {
     );
   }
 
-  // Return path to python in the venv
+  // Step 3: Clean up UV from cache (now installed in penv via pip)
+  await moveUvToPenv();
+
   const pythonPath = path.join(penvDir, BIN_DIR, PYTHON_EXE);
   log('info', `Python available at: ${pythonPath}`);
   return pythonPath;

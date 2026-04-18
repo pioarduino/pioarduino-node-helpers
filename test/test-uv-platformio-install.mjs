@@ -5,14 +5,15 @@
  * This tests the actual code path used in pioarduino-core.js
  */
 
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { resolveUV } from './uv-helper.mjs';
+import { resolveUV, getPenvDir, BIN_DIR, PYTHON_EXE, UV_EXE, getUVPenvPath } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -37,7 +38,7 @@ async function runTests() {
   console.log();
 
   const coreDir = path.join(os.homedir(), '.platformio');
-  const penvDir = path.join(coreDir, 'penv');
+  const penvDir = getPenvDir();
 
   try {
     // Test 1: Find/Install Python via uv python find
@@ -82,9 +83,11 @@ async function runTests() {
     console.log('Test 3: Creating UV virtual environment...');
     try {
       const startTime = Date.now();
-      await execAsync(`"${uvExe}" venv --python "${python}" "${penvDir}"`, {
-        timeout: 60000,
-      });
+      await execFileAsync(
+        uvExe,
+        ['venv', penvDir, '--python', '3.13', '--python-preference', 'managed'],
+        { timeout: 300000 },
+      );
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
       pass(`UV venv created in ${duration}s`);
     } catch (err) {
@@ -93,21 +96,35 @@ async function runTests() {
     }
     console.log();
 
+    // Test 3b: Install UV into penv/bin
+    console.log('Test 3b: Installing UV into penv/bin...');
+    try {
+      const venvPy = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+      await execFileAsync(
+        uvExe,
+        ['pip', 'install', 'uv>=0.1.0', `--python=${venvPy}`],
+        { timeout: 120000 },
+      );
+      const penvUv = getUVPenvPath();
+      await fs.access(penvUv);
+      pass(`UV installed into penv: ${penvUv}`);
+    } catch (err) {
+      fail('Failed to install UV into penv', err);
+      return false;
+    }
+    console.log();
+
     // Test 4: Install PlatformIO using UV pip into the venv
     console.log('Test 4: Installing PlatformIO with UV pip into venv...');
     console.log('  This may take several minutes...');
     try {
-      const binDir = process.platform === 'win32' 
-        ? path.join(penvDir, 'Scripts')
-        : path.join(penvDir, 'bin');
-      
-      const venvPython = process.platform === 'win32'
-        ? path.join(binDir, 'python.exe')
-        : path.join(binDir, 'python3');
+      const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+      // Use penv UV for install (it's now in penv/bin)
+      const penvUv = getUVPenvPath();
       
       const startTime = Date.now();
-      const { stdout, stderr } = await execAsync(
-        `"${uvExe}" pip install --python "${venvPython}" platformio`,
+      const { stdout } = await execAsync(
+        `"${penvUv}" pip install "--python=${venvPython}" platformio`,
         {
           timeout: 600000, // 10 minutes
           maxBuffer: 50 * 1024 * 1024,
@@ -135,15 +152,20 @@ async function runTests() {
       await fs.access(penvDir);
       pass('penv directory exists');
       
-      const binDir = process.platform === 'win32' 
-        ? path.join(penvDir, 'Scripts')
-        : path.join(penvDir, 'bin');
-      
+      const binDir = path.join(penvDir, BIN_DIR);
       await fs.access(binDir);
       pass('bin directory exists');
       
       const contents = await fs.readdir(binDir);
       pass(`Found ${contents.length} files in bin directory`);
+
+      // Verify UV is in penv/bin
+      const uvInBin = contents.includes(UV_EXE);
+      if (uvInBin) {
+        pass(`${UV_EXE} found in penv/bin`);
+      } else {
+        fail(`${UV_EXE} NOT found in penv/bin`);
+      }
     } catch (err) {
       fail('penv verification failed', err);
       return false;
@@ -153,17 +175,11 @@ async function runTests() {
     // Test 6: Verify PlatformIO executable
     console.log('Test 6: Verifying PlatformIO executable...');
     try {
-      const binDir = process.platform === 'win32' 
-        ? path.join(penvDir, 'Scripts')
-        : path.join(penvDir, 'bin');
+      const binDir = path.join(penvDir, BIN_DIR);
+      const IS_WINDOWS = process.platform === 'win32';
       
-      const pioExe = process.platform === 'win32'
-        ? path.join(binDir, 'platformio.exe')
-        : path.join(binDir, 'platformio');
-      
-      const pioAlias = process.platform === 'win32'
-        ? path.join(binDir, 'pio.exe')
-        : path.join(binDir, 'pio');
+      const pioExe = path.join(binDir, IS_WINDOWS ? 'platformio.exe' : 'platformio');
+      const pioAlias = path.join(binDir, IS_WINDOWS ? 'pio.exe' : 'pio');
       
       let found = false;
       let exe;
@@ -181,8 +197,6 @@ async function runTests() {
           pass('pio executable exists');
         } catch {
           fail('Neither platformio nor pio executable found');
-          
-          // List what's actually in bin
           const contents = await fs.readdir(binDir);
           console.log('  Files in bin:', contents.filter(f => !f.startsWith('.')).slice(0, 20).join(', '));
           return false;
@@ -190,13 +204,10 @@ async function runTests() {
       }
       
       if (found) {
-        // Try to get version
         try {
-          const { stdout } = await execAsync(`"${exe}" --version`, {
-            timeout: 30000,
-          });
+          const { stdout } = await execAsync(`"${exe}" --version`, { timeout: 30000 });
           pass(`PlatformIO version: ${stdout.trim()}`);
-        } catch (err) {
+        } catch {
           console.log('  Note: Could not get version (may need first-time setup)');
         }
       }
@@ -206,18 +217,13 @@ async function runTests() {
     }
     console.log();
 
-    // Test 7: Verify installation with UV pip list
+    // Test 7: Verify installation with UV pip list (using penv UV)
     console.log('Test 7: Verifying installation with UV pip list...');
     try {
-      const binDir = process.platform === 'win32' 
-        ? path.join(penvDir, 'Scripts')
-        : path.join(penvDir, 'bin');
+      const penvUvExe = getUVPenvPath();
+      const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
       
-      const venvPython = process.platform === 'win32'
-        ? path.join(binDir, 'python.exe')
-        : path.join(binDir, 'python3');
-      
-      const { stdout } = await execAsync(`"${uvExe}" pip list --python "${venvPython}"`, {
+      const { stdout } = await execAsync(`"${penvUvExe}" pip list "--python=${venvPython}"`, {
         timeout: 30000,
       });
       
