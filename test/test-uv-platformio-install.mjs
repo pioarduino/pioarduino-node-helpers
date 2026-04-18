@@ -208,7 +208,7 @@ async function runTests() {
       });
       
       const lines = stdout.trim().split('\n');
-      const platformioLine = lines.find(line => line.toLowerCase().includes('platformio'));
+      const platformioLine = lines.find(line => line.toLowerCase().startsWith(packageSpec));
       
       if (platformioLine) {
         pass('PlatformIO found in UV pip list');
