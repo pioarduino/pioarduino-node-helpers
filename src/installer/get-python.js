@@ -263,33 +263,25 @@ async function installUvWithScript(cacheDir) {
 
     tmpScriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uv-install-'));
 
-    if (proc.IS_WINDOWS) {
-      log('info', 'Installing uv using official Windows installer');
-      const scriptResponse = await got(UV_INSTALL_SCRIPT_WINDOWS, {
-        timeout: { request: 30000 },
-      });
-      const tempScriptPath = path.join(tmpScriptDir, 'install.ps1');
-      fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
-      await execPowerShell(
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'ByPass',
-          '-File',
-          tempScriptPath,
-        ],
-        { timeout: 900000, env },
-      );
-    } else {
-      log('info', 'Installing uv using official Unix installer');
-      const scriptResponse = await got(UV_INSTALL_SCRIPT_UNIX, {
-        timeout: { request: 30000 },
-      });
-      const tempScriptPath = path.join(tmpScriptDir, 'install.sh');
-      fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
-      fs.chmodSync(tempScriptPath, 0o755);
-      await execFile('sh', [tempScriptPath], { timeout: 900000, env });
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uv-installer-'));
+    try {
+      if (proc.IS_WINDOWS) {
+        const scriptPath = path.join(tmpDir, 'install.ps1');
+        const { body } = await got(UV_INSTALL_SCRIPT_WINDOWS, { timeout: { request: 30000 } });
+        fs.writeFileSync(scriptPath, body);
+        await execFile(
+          'powershell',
+          ['-ExecutionPolicy', 'ByPass', '-File', scriptPath],
+          { timeout: 900000, env },
+        );
+      } else {
+        const scriptPath = path.join(tmpDir, 'install.sh');
+        const { body } = await got(UV_INSTALL_SCRIPT_UNIX, { timeout: { request: 30000 } });
+        fs.writeFileSync(scriptPath, body, { mode: 0o755 });
+        await execFile('sh', [scriptPath], { timeout: 900000, env });
+      }
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
     if (fs.existsSync(uvDest)) {
