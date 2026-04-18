@@ -57,21 +57,32 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           # Remove uv
-          sudo rm -f "$(which uv)" || true
+          sudo rm -f "$(which uv 2>/dev/null)" || true
           rm -f "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" || true
-          # Remove all Python executables from PATH
-          for exe in python python3 python3.9 python3.10 python3.11 python3.12 python3.13; do
-            sudo rm -f "$(which $exe 2>/dev/null)" || true
-          done
+
           # Remove Python from known runner locations (Linux)
           sudo rm -rf /usr/bin/python* /usr/local/bin/python* || true
           sudo rm -rf /opt/hostedtoolcache/Python || true
+
           # Remove Homebrew Python (macOS)
           if command -v brew &>/dev/null; then
-            brew uninstall --ignore-dependencies --force python@3.9 python@3.10 python@3.11 python@3.12 python@3.13 python3 python 2>/dev/null || true
+            brew uninstall --ignore-dependencies --force \
+              python@3.9 python@3.10 python@3.11 python@3.12 python@3.13 python@3.14 \
+              python3 python 2>/dev/null || true
             sudo rm -rf /usr/local/opt/python* /opt/homebrew/opt/python* || true
             sudo rm -rf /usr/local/bin/python* /opt/homebrew/bin/python* || true
           fi
+
+          # Remove Xcode CLT Python (macOS)
+          sudo rm -f /Library/Developer/CommandLineTools/usr/bin/python3* || true
+          sudo rm -f /Library/Developer/CommandLineTools/usr/bin/python* || true
+          # Remove python.org framework installer (macOS)
+          sudo rm -rf /Library/Frameworks/Python.framework || true
+
+          # Exhaustively remove any remaining python3/python from PATH
+          for exe in python python3 python3.9 python3.10 python3.11 python3.12 python3.13 python3.14; do
+            while p=$(which "$exe" 2>/dev/null); do sudo rm -f "$p" || break; done
+          done
 
       - name: Remove uv and Python (Windows)
         if: runner.os == 'Windows'
