@@ -212,12 +212,13 @@ async function installUvDownload(cacheDir) {
     fs.mkdirSync(extractDir, { recursive: true });
 
     if (proc.IS_WINDOWS) {
+      const psQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
       await execPowerShell(
         [
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractDir}'`,
+          `Expand-Archive -LiteralPath ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
         ],
         { timeout: 60000 },
       );
