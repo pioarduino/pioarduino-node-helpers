@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { resolveUV } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -106,7 +107,8 @@ async function main() {
 
   // Test 8: Check if UV is installed in penv
   await runTest('Test 8: Checking if UV is installed in penv', async () => {
-    const { stdout } = await execAsync(`uv pip list --python ${path.join(penvDir, 'bin', 'python')}`);
+    const uvExe = await resolveUV();
+    const { stdout } = await execAsync(`"${uvExe}" pip list --python "${path.join(penvDir, 'bin', 'python')}"`);
     
     if (!stdout.includes('uv ')) {
       throw new Error('UV not found in penv!');

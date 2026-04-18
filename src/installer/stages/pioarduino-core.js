@@ -10,19 +10,25 @@ import * as core from '../../core';
 import * as misc from '../../misc';
 import * as proc from '../../proc';
 import {
+  createVenvWithUv,
   findPythonExecutable,
   getPythonExecutablePath,
+  getUvExecutable,
+  installPlatformIOWithUv,
   installPortablePython,
+  moveUvToPenv,
 } from '../get-python';
 
 import BaseStage from './base';
-import { callInstallerScript } from '../get-pioarduino';
 import { promises as fs } from 'fs';
 import { lookup } from 'dns';
 import path from 'path';
 import { promisify } from 'util';
+import semver from 'semver';
 
 const dnsLookup = promisify(lookup);
+const execFile = promisify(require('child_process').execFile);
+const INSTALLER_VERSION = require('../../../package.json').version;
 
 export default class pioarduinoCoreStage extends BaseStage {
   static getBuiltInPythonDir() {
@@ -219,38 +225,159 @@ export default class pioarduinoCoreStage extends BaseStage {
     return true;
   }
   async loadCoreState() {
-    const stateJSONPath = path.join(
-      core.getTmpDir(),
-      `core-dump-${Math.round(Math.random() * 100000)}.json`,
-    );
-    const scriptArgs = [];
-    if (this.useDevCore()) {
-      scriptArgs.push('--dev');
-    }
-    scriptArgs.push(
-      ...[
-        'check',
-        'core',
-        this.params.disableAutoUpdates || !this.params.useBuiltinPIOCore
-          ? '--no-auto-upgrade'
-          : '--auto-upgrade',
-      ],
-    );
-    if (this.params.pioCoreVersionSpec) {
-      scriptArgs.push(...['--version-spec', this.params.pioCoreVersionSpec]);
-    }
-    if (!this.params.useBuiltinPIOCore) {
-      scriptArgs.push('--global');
-    }
-    scriptArgs.push(...['--dump-state', stateJSONPath]);
-    console.info(await callInstallerScript(await this.whereIsPython(), scriptArgs));
+    const penvDir = core.getEnvDir();
+    const penvBinDir = core.getEnvBinDir();
+    const isGlobal = !this.params.useBuiltinPIOCore;
 
-    // Load PIO Core state
-    const coreState = await misc.loadJSON(stateJSONPath);
+    // Resolve python and platformio executables
+    const pythonExe = isGlobal
+      ? await this.whereIsPython()
+      : await pioarduinoCoreStage.findBuiltInPythonExe();
+    const platformioExe = isGlobal
+      ? proc.whereIsProgram(proc.IS_WINDOWS ? 'platformio.exe' : 'platformio')
+      : path.join(penvBinDir, proc.IS_WINDOWS ? 'platformio.exe' : 'platformio');
+
+    if (!platformioExe) {
+      if (isGlobal) {
+        throw new Error(
+          `pioarduino executable \`${proc.IS_WINDOWS ? 'platformio.exe' : 'platformio'}\` not found on system PATH (searched via proc.whereIsProgram)`,
+        );
+      } else {
+        throw new Error(`pioarduino executable not found in \`${penvBinDir}\``);
+      }
+    }
+    try {
+      await fs.access(platformioExe);
+    } catch {
+      if (isGlobal) {
+        throw new Error(
+          `pioarduino executable \`${platformioExe}\` not found on system PATH`,
+        );
+      } else {
+        throw new Error(
+          `pioarduino executable not found at \`${platformioExe}\` in ${penvBinDir}`,
+        );
+      }
+    }
+
+    // Verify platformio works
+    try {
+      await execFile(platformioExe, ['--help'], { timeout: 30000 });
+    } catch (err) {
+      throw new Error(
+        `Could not run \`${platformioExe} --help\`. Error: ${err.message}`,
+      );
+    }
+
+    // Fetch core version and python version via inline Python
+    let coreVersion, pythonVersion;
+    try {
+      ({ coreVersion, pythonVersion } = await this.probePioCoreVersion(pythonExe));
+    } catch (err) {
+      throw new Error(`Could not import pioarduino module. Error: ${err.message}`);
+    }
+
+    const develop = this.useDevCore() || (coreVersion || '').includes('-');
+
+    const coreState = {
+      core_version: coreVersion,
+      python_version: pythonVersion,
+      core_dir: core.getCoreDir(),
+      cache_dir: core.getCacheDir(),
+      penv_dir: penvDir,
+      penv_bin_dir: penvBinDir,
+      platformio_exe: platformioExe,
+      installer_version: INSTALLER_VERSION,
+      python_exe: pythonExe,
+      system: proc.getSysType(),
+      is_develop_core: develop,
+    };
+
+    // Validate version spec if provided
+    if (this.params.pioCoreVersionSpec && coreVersion) {
+      const validVersion = semver.valid(coreVersion) || semver.coerce(coreVersion);
+      if (
+        validVersion &&
+        !semver.satisfies(validVersion, this.params.pioCoreVersionSpec, {
+          includePrerelease: true,
+        })
+      ) {
+        throw new Error(
+          `pioarduino Core version ${coreVersion} does not match version requirements ${this.params.pioCoreVersionSpec}.`,
+        );
+      }
+    }
+
+    // Auto-upgrade if enabled
+    if (!isGlobal && !this.params.disableAutoUpdates) {
+      await this.autoUpgradeCore(platformioExe, develop);
+      // Re-fetch state after upgrade
+      try {
+        const refreshed = await this.probePioCoreVersion(pythonExe);
+        coreState.core_version = refreshed.coreVersion;
+        coreState.python_version = refreshed.pythonVersion;
+      } catch {
+        // keep existing state
+      }
+    }
+
     console.info('PIO Core State', coreState);
     core.setCoreState(coreState);
-    await fs.unlink(stateJSONPath); // cleanup
     return true;
+  }
+
+  async probePioCoreVersion(pythonExe) {
+    const { stdout } = await execFile(
+      pythonExe,
+      [
+        '-c',
+        'import json, platform, platformio; print(json.dumps({"core_version": platformio.__version__, "python_version": platform.python_version()}))',
+      ],
+      { timeout: 15000 },
+    );
+    const parsed = JSON.parse(stdout.trim());
+    return { coreVersion: parsed.core_version, pythonVersion: parsed.python_version };
+  }
+
+  async autoUpgradeCore(platformioExe, develop) {
+    const UPDATE_INTERVAL = 60 * 60 * 24 * 31; // 31 days
+    // Store state outside the virtualenv so it survives venv recreation
+    const statePath = path.join(core.getCoreDir(), 'state.json');
+    let state = {};
+    try {
+      const raw = await fs.readFile(statePath, 'utf-8');
+      state = JSON.parse(raw);
+    } catch {
+      // no state file yet
+    }
+
+    const timeNow = Math.round(Date.now() / 1000);
+    const lastCheck = state.last_piocore_version_check;
+    if (lastCheck && timeNow - lastCheck < UPDATE_INTERVAL) {
+      return;
+    }
+
+    if (!lastCheck) {
+      // First run: record the timestamp but skip the upgrade
+      state.last_piocore_version_check = timeNow;
+      await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf-8');
+      return;
+    }
+
+    const args = ['upgrade'];
+    if (develop) {
+      args.push('--dev');
+    }
+    try {
+      await execFile(platformioExe, args, { timeout: 300000 });
+      console.info('PlatformIO Core upgraded successfully');
+    } catch (err) {
+      console.warn(`Could not upgrade pioarduino Core: ${err.message}`);
+    }
+
+    // Record the attempt regardless of success/failure
+    state.last_piocore_version_check = timeNow;
+    await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf-8');
   }
 
   useDevCore() {
@@ -412,41 +539,44 @@ export default class pioarduinoCoreStage extends BaseStage {
     }
     withProgress('Preparing for installation', 10);
     try {
-      let uvPythonPath = null;
+      // Step 1: Install UV without Python (direct binary download)
+      withProgress('Installing UV package manager', 20);
+      let uvExe = await getUvExecutable();
+      console.info('UV available at:', uvExe);
+
+      // Step 2: Create venv with Python 3.13 using UV or find system Python
+      let pythonToUse;
       if (this.params.useBuiltinPython) {
-        withProgress('Installing Python 3.13 using UV', 10);
-        try {
-          // installPortablePython now returns the Python executable path directly
-          uvPythonPath = await installPortablePython();
-          console.info('UV-managed Python installed at:', uvPythonPath);
-        } catch (err) {
-          console.warn('UV Python installation failed:', err);
-          throw err;
-        }
+        withProgress('Creating virtual environment with Python 3.13', 40);
+        pythonToUse = await installPortablePython(); // also moves UV to penv
+        console.info('Python installed at:', pythonToUse);
+      } else {
+        // Even without built-in Python, create a venv at penvDir so PlatformIO
+        // lands in penvBinDir (required by loadCoreState when useBuiltinPIOCore=true)
+        const systemPython = await this.whereIsPython({ prompt: true });
+        withProgress('Creating virtual environment with system Python', 40);
+        const venvPenvDir = core.getEnvDir();
+        await createVenvWithUv(uvExe, venvPenvDir, systemPython);
+        await moveUvToPenv();
+        const penvBinDir = pioarduinoCoreStage.getBuiltInPythonBinDir();
+        pythonToUse = path.join(penvBinDir, proc.IS_WINDOWS ? 'python.exe' : 'python3');
+        console.info('Venv created with system Python, Python at:', pythonToUse);
       }
 
-      withProgress('Installing pioarduino Core', 20);
+      // Re-resolve UV: it may have moved from cache to penv/bin
+      uvExe = await getUvExecutable();
 
-      // Use the Python installer script to set up penv with UV
-      const pythonToUse = uvPythonPath || (await this.whereIsPython({ prompt: true }));
-      console.info('Using Python for PlatformIO installation:', pythonToUse);
+      // Step 3: Install PlatformIO Core using UV
+      withProgress('Installing PlatformIO Core', 60);
+      const penvDir = core.getEnvDir();
+      await installPlatformIOWithUv(uvExe, penvDir, this.useDevCore(), pythonToUse);
+      console.info('PlatformIO Core installed successfully');
 
-      // Use the installer script to create penv and install PlatformIO
-      withProgress('Creating virtual environment and installing PlatformIO', 30);
-
-      // Note: The 'install' command doesn't support --dev, --version-spec, or --no-auto-upgrade
-      // These options are only available for the 'check' command
-      const scriptArgs = ['install'];
-
-      console.info('Running installer script with args:', scriptArgs);
-      const installOutput = await callInstallerScript(pythonToUse, scriptArgs);
-      console.info('PlatformIO installation output:', installOutput);
-
-      // Load the core state from the installer script
+      // Step 4: Load core state
       withProgress('Loading pioarduino Core state', 80);
       await this.loadCoreState();
 
-      withProgress('Installing pioarduino Home', 80);
+      withProgress('Installing pioarduino Home', 90);
       await this.installPIOHome();
     } catch (err) {
       misc.reportError(err);

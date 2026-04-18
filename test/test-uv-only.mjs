@@ -1,228 +1,247 @@
 #!/usr/bin/env node
 
 /**
- * Isolated test for UV installation only
- * Tests UV installation without loading other dependencies
+ * Test the full UV lifecycle:
+ *   1. Bootstrap UV (from PATH or download to cache)
+ *   2. Create venv at ~/.platformio/penv with Python 3.13
+ *   3. Install UV permanently into penv via `uv pip install uv`
+ *   4. Clean up bootstrap UV from cache
+ *   5. Verify UV works from penv/bin
  */
 
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import fs from 'node:fs';
+import https from 'node:https';
+import {
+  getUVCacheDir, getUVCachePath, resolveUV,
+  IS_WINDOWS, UV_EXE, BIN_DIR, PYTHON_EXE,
+} from './uv-helper.mjs';
 
-const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let testsPassed = 0;
+let testsFailed = 0;
 
-// Determine if Windows
-const IS_WINDOWS = process.platform === 'win32';
-
-/**
- * Get UV executable path
- */
-function getUVExecutablePath() {
-  const homeDir = process.env.USERPROFILE || process.env.HOME;
-  const uvExe = IS_WINDOWS ? 'uv.exe' : 'uv';
-  return path.join(homeDir, '.local', 'bin', uvExe);
-}
+function pass(msg) { console.log(`✓ ${msg}`); testsPassed++; }
+function fail(msg, err) { console.error(`✗ ${msg}`); if (err) console.error(`  Error: ${err.message}`); testsFailed++; }
 
 /**
- * Check if UV is available
+ * Download a URL to a string via https (follows redirects)
  */
-async function isUVAvailable() {
-  // First check if UV is in PATH
-  try {
-    await execAsync('uv --version');
-    console.log('✓ UV is available on system PATH');
-    return true;
-  } catch {
-    // UV not in PATH, check default installation location
-    try {
-      const uvPath = getUVExecutablePath();
-      await execAsync(`"${uvPath}" --version`);
-      console.log(`✓ UV found at: ${uvPath}`);
-      return true;
-    } catch {
-      console.log('✗ UV not found on system');
-      return false;
-    }
-  }
-}
-
-/**
- * Install UV
- */
-async function installUV() {
-  console.log('Installing UV package manager...');
-
-  try {
-    if (IS_WINDOWS) {
-      // Windows: Use PowerShell
-      await execAsync(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"',
-        { timeout: 120000 }
-      );
-    } else {
-      // Unix/Linux/macOS: Use shell
-      await execAsync('curl -LsSf https://astral.sh/uv/install.sh | sh', {
-        timeout: 120000,
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    const get = (u) => {
+      const req = https.get(u, { headers: { 'User-Agent': 'node' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume();
+          return get(res.headers.location);
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`HTTP ${res.statusCode} for ${u}`));
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString()));
+        res.on('error', reject);
       });
-    }
-
-    console.log('✓ UV installation completed');
-  } catch (err) {
-    throw new Error(`Failed to install UV: ${err.message}`);
-  }
+      req.setTimeout(30000, () => req.destroy(new Error('fetch timeout')));
+      req.on('error', reject);
+    };
+    get(url);
+  });
 }
 
 /**
- * Get UV command
+ * Bootstrap UV into cache dir (temporary — will be replaced by penv install).
  */
-async function getUVCommand() {
-  try {
-    await execAsync('uv --version');
-    return 'uv';
-  } catch {
-    return getUVExecutablePath();
-  }
-}
+async function bootstrapUV() {
+  console.log('  Bootstrapping UV into cache...');
+  const cacheDir = getUVCacheDir();
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const env = { ...process.env, UV_UNMANAGED_INSTALL: cacheDir };
 
-/**
- * Install Python via UV
- */
-async function installPython() {
-  console.log('Installing Python 3.13 via UV...');
-
-  const uvCommand = await getUVCommand();
-  console.log(`Using UV command: ${uvCommand}`);
-
-  try {
-    // Check if Python is already installed
+  if (IS_WINDOWS) {
+    const script = await fetchText('https://astral.sh/uv/install.ps1');
+    const tmp = path.join(cacheDir, `uv-install-${Date.now()}.ps1`);
+    fs.writeFileSync(tmp, script, 'utf-8');
+    const psArgs = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmp];
     try {
-      const result = await execAsync(`"${uvCommand}" python find 3.13`);
-      const pythonPath = result.stdout.trim();
-      if (pythonPath) {
-        console.log(`✓ Python 3.13 already available at: ${pythonPath}`);
-        return pythonPath;
+      try {
+        await execFileAsync('pwsh', psArgs, { timeout: 120000, env });
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        await execFileAsync('powershell.exe', psArgs, { timeout: 120000, env });
       }
-    } catch {
-      console.log('Python 3.13 not found, installing...');
-    }
-
-    // Install Python
-    await execAsync(`"${uvCommand}" python install 3.13`, {
-      timeout: 300000, // 5 minutes
-    });
-
-    // Get Python path
-    const result = await execAsync(`"${uvCommand}" python find 3.13`);
-    const pythonPath = result.stdout.trim();
-
-    if (!pythonPath) {
-      throw new Error('UV did not return a Python path');
-    }
-
-    console.log(`✓ Python 3.13 installed at: ${pythonPath}`);
-    return pythonPath;
-  } catch (err) {
-    throw new Error(`Python installation failed: ${err.message}`);
+    } finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
+  } else {
+    const script = await fetchText('https://astral.sh/uv/install.sh');
+    const tmp = path.join(cacheDir, `uv-install-${Date.now()}.sh`);
+    fs.writeFileSync(tmp, script, 'utf-8');
+    fs.chmodSync(tmp, 0o755);
+    try {
+      await execAsync(`sh "${tmp}"`, { timeout: 120000, env });
+    } finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
   }
 }
 
 /**
- * Test Python execution
+ * Find a working uv: PATH → penv/bin → cache. Downloads if needed.
  */
-async function testPython(pythonPath) {
-  console.log('Testing Python execution...');
-
+async function findOrInstallUV() {
   try {
-    // Test version
-    const { stdout: version } = await execAsync(`"${pythonPath}" --version`);
-    console.log(`✓ Python version: ${version.trim()}`);
+    return await resolveUV();
+  } catch { /* not found anywhere */ }
 
-    // Test script
-    const { stdout: output } = await execAsync(
-      `"${pythonPath}" -c "import sys; print(f'Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"`
-    );
-    console.log(`✓ Python script output: ${output.trim()}`);
-
-    return true;
-  } catch (err) {
-    console.error(`✗ Python test failed: ${err.message}`);
-    return false;
-  }
+  // Download bootstrap into cache
+  await bootstrapUV();
+  const cachedUv = getUVCachePath();
+  await execAsync(`"${cachedUv}" --version`, { timeout: 5000 });
+  return cachedUv;
 }
 
-/**
- * Main test function
- */
+const testPenvDir = path.join(os.tmpdir(), `pio-test-uv-lifecycle-${Date.now()}`);
+
 async function runTests() {
   console.log('='.repeat(60));
-  console.log('UV and Python Installation Test');
+  console.log('UV Full Lifecycle Test');
   console.log('='.repeat(60));
   console.log();
 
-  let testsPassed = 0;
-  let testsFailed = 0;
-
+  // -----------------------------------------------------------
+  // Test 1: Get a working UV (bootstrap if necessary)
+  // -----------------------------------------------------------
+  console.log('Test 1: Finding/installing UV...');
+  let uvExe;
   try {
-    // Test 1: Check UV availability
-    console.log('Test 1: Checking UV availability...');
-    let uvAvailable = await isUVAvailable();
-    
-    if (!uvAvailable) {
-      console.log('UV not found, installing...');
-      await installUV();
-      uvAvailable = await isUVAvailable();
-    }
-
-    if (uvAvailable) {
-      console.log('✓ UV is available');
-      testsPassed++;
-    } else {
-      console.error('✗ UV installation failed');
-      testsFailed++;
-      return;
-    }
-    console.log();
-
-    // Test 2: Install Python
-    console.log('Test 2: Installing Python 3.13...');
-    const pythonPath = await installPython();
-    
-    if (pythonPath) {
-      console.log('✓ Python installation successful');
-      testsPassed++;
-    } else {
-      console.error('✗ Python installation failed');
-      testsFailed++;
-      return;
-    }
-    console.log();
-
-    // Test 3: Test Python
-    console.log('Test 3: Testing Python execution...');
-    const pythonWorks = await testPython(pythonPath);
-    
-    if (pythonWorks) {
-      console.log('✓ Python execution successful');
-      testsPassed++;
-    } else {
-      console.error('✗ Python execution failed');
-      testsFailed++;
-    }
-    console.log();
-
-  } catch (error) {
-    console.error('✗ Test suite failed:', error.message);
-    console.error();
-    console.error('Stack trace:');
-    console.error(error.stack);
-    testsFailed++;
+    uvExe = await findOrInstallUV();
+    const { stdout } = await execAsync(`"${uvExe}" --version`, { timeout: 5000 });
+    pass(`UV available: ${stdout.trim()} (${uvExe})`);
+  } catch (err) {
+    fail('Could not obtain UV', err);
+    return;
   }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 2: Create venv with Python 3.13 (in temp dir)
+  // -----------------------------------------------------------
+  console.log('Test 2: Creating venv with Python 3.13...');
+  try {
+    fs.rmSync(testPenvDir, { recursive: true, force: true });
+    await execFileAsync(
+      uvExe,
+      ['venv', testPenvDir, '--python', '3.13', '--python-preference', 'managed'],
+      { timeout: 300000 },
+    );
+    const venvPython = path.join(testPenvDir, BIN_DIR, PYTHON_EXE);
+    fs.accessSync(venvPython);
+    const { stdout } = await execAsync(`"${venvPython}" --version`, { timeout: 10000 });
+    pass(`Venv created — ${stdout.trim()}`);
+  } catch (err) {
+    fail('Failed to create venv', err);
+    return;
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 3: Install UV permanently into venv via uv pip install
+  // -----------------------------------------------------------
+  console.log('Test 3: Installing UV into venv/bin...');
+  const venvPython = path.join(testPenvDir, BIN_DIR, PYTHON_EXE);
+  const testUvPath = path.join(testPenvDir, BIN_DIR, UV_EXE);
+  try {
+    await execFileAsync(
+      uvExe,
+      ['pip', 'install', 'uv>=0.1.0', `--python=${venvPython}`],
+      { timeout: 120000 },
+    );
+    fs.accessSync(testUvPath);
+    const { stdout } = await execAsync(`"${testUvPath}" --version`, { timeout: 5000 });
+    pass(`UV installed in venv: ${stdout.trim()}`);
+  } catch (err) {
+    fail('Failed to install UV into venv', err);
+    return;
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 4: Verify UV from venv/bin works standalone
+  // -----------------------------------------------------------
+  console.log('Test 4: Verifying venv UV works standalone...');
+  try {
+    const { stdout } = await execAsync(`"${testUvPath}" --version`, { timeout: 5000 });
+    pass(`venv UV works: ${stdout.trim()}`);
+  } catch (err) {
+    fail('venv UV not functional', err);
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 5: Verify Python in venv works
+  // -----------------------------------------------------------
+  console.log('Test 5: Verifying venv Python...');
+  try {
+    const { stdout } = await execAsync(
+      `"${venvPython}" -c "import sys; print(f'Python {sys.version}')"`,
+      { timeout: 10000 },
+    );
+    pass(`venv Python: ${stdout.trim()}`);
+  } catch (err) {
+    fail('venv Python not functional', err);
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 6: Cleanup test venv and ensure real penv exists
+  // -----------------------------------------------------------
+  console.log('Test 6: Cleaning up test venv...');
+  try {
+    fs.rmSync(testPenvDir, { recursive: true, force: true });
+    pass('Test venv removed');
+  } catch {
+    console.log('  Note: Could not remove test venv');
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 7: Ensure ~/.platformio/penv has UV for other tests
+  // -----------------------------------------------------------
+  console.log('Test 7: Ensuring real penv has UV...');
+  const realPenvDir = path.join(os.homedir(), '.platformio', 'penv');
+  const realPenvUv = path.join(realPenvDir, BIN_DIR, UV_EXE);
+  try {
+    // Check if penv already has a working UV
+    fs.accessSync(realPenvUv);
+    await execAsync(`"${realPenvUv}" --version`, { timeout: 5000 });
+    pass('Real penv already has UV');
+  } catch {
+    // Need to create penv with UV
+    console.log('  Setting up real penv...');
+    try {
+      fs.rmSync(realPenvDir, { recursive: true, force: true });
+      await execFileAsync(
+        uvExe,
+        ['venv', realPenvDir, '--python', '3.13', '--python-preference', 'managed'],
+        { timeout: 300000 },
+      );
+      const realPenvPython = path.join(realPenvDir, BIN_DIR, PYTHON_EXE);
+      await execFileAsync(
+        uvExe,
+        ['pip', 'install', 'uv>=0.1.0', `--python=${realPenvPython}`],
+        { timeout: 120000 },
+      );
+      fs.accessSync(realPenvUv);
+      pass('Real penv created with UV');
+    } catch (err) {
+      fail('Could not set up real penv', err);
+    }
+  }
+  console.log();
 
   // Summary
   console.log('='.repeat(60));

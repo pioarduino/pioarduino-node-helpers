@@ -11,6 +11,7 @@
  */
 
 import { installPortablePython, getPythonExecutablePath } from '../src/installer/get-python.js';
+import { resolveUV } from './uv-helper.mjs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -36,7 +37,7 @@ async function main() {
 
     // Step 2: Verify Python can be found
     console.log('Step 2: Verifying Python can be found...');
-    const foundPath = await getPythonExecutablePath('3.13');
+    const foundPath = await getPythonExecutablePath();
     console.log('✓ Python found via getPythonExecutablePath()');
     console.log(`  Found path: ${foundPath}`);
     console.log();
@@ -75,7 +76,8 @@ async function main() {
       } catch {}
       
       // Create venv with UV
-      await execAsync(`uv venv --python "${pythonPath}" "${testVenvDir}"`, {
+      const uvExe = await resolveUV();
+      await execAsync(`"${uvExe}" venv --python "${pythonPath}" "${testVenvDir}"`, {
         timeout: 60000,
       });
       console.log(`✓ UV venv created at: ${testVenvDir}`);
