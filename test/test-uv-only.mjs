@@ -5,30 +5,31 @@
  * Tests UV installation without loading other dependencies
  */
 
-import { exec, execFile } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import https from 'node:https';
-import { pipeline } from 'node:stream/promises';
 
-const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Determine if Windows
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
- * Get UV executable path
+ * Get the ~/.platformio/.cache directory (mirrors core.getCacheDir())
+ */
+function getUVCacheDir() {
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  return path.join(homeDir, '.platformio', '.cache');
+}
+
+/**
+ * Get UV executable path inside ~/.platformio/.cache
  */
 function getUVExecutablePath() {
-  const homeDir = process.env.USERPROFILE || process.env.HOME;
   const uvExe = IS_WINDOWS ? 'uv.exe' : 'uv';
-  return path.join(homeDir, '.local', 'bin', uvExe);
+  return path.join(getUVCacheDir(), uvExe);
 }
 
 /**
@@ -77,23 +78,24 @@ function fetchText(url) {
 }
 
 /**
- * Install UV
+ * Install UV into ~/.platformio/.cache
  */
 async function installUV() {
   console.log('Installing UV package manager...');
 
+  const cacheDir = getUVCacheDir();
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const env = { ...process.env, UV_UNMANAGED_INSTALL: cacheDir };
+
   try {
     if (IS_WINDOWS) {
       const script = await fetchText('https://astral.sh/uv/install.ps1');
-      const tmpScript = path.join(
-        process.env.TEMP || process.env.TMP || 'C:\\Temp',
-        `uv-install-${Date.now()}.ps1`,
-      );
+      const tmpScript = path.join(cacheDir, `uv-install-${Date.now()}.ps1`);
       fs.writeFileSync(tmpScript, script, 'utf-8');
       try {
         const { stdout, stderr } = await execAsync(
           `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`,
-          { timeout: 120000 },
+          { timeout: 120000, env },
         );
         if (stdout) console.log('uv install stdout:', stdout.trim());
         if (stderr) console.log('uv install stderr:', stderr.trim());
@@ -106,14 +108,17 @@ async function installUV() {
       }
     } else {
       const script = await fetchText('https://astral.sh/uv/install.sh');
-      const tmpScript = path.join(
-        process.env.TMPDIR || '/tmp',
-        `uv-install-${Date.now()}.sh`,
-      );
+      const tmpScript = path.join(cacheDir, `uv-install-${Date.now()}.sh`);
       fs.writeFileSync(tmpScript, script, 'utf-8');
       fs.chmodSync(tmpScript, 0o755);
       try {
-        await execAsync(`sh "${tmpScript}"`, { timeout: 120000 });
+        const { stdout, stderr } = await execAsync(`sh "${tmpScript}"`, { timeout: 120000, env });
+        if (stdout) console.log('uv install stdout:', stdout.trim());
+        if (stderr) console.log('uv install stderr:', stderr.trim());
+      } catch (err) {
+        console.error('uv install stdout:', err.stdout);
+        console.error('uv install stderr:', err.stderr);
+        throw err;
       } finally {
         try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
       }
@@ -126,7 +131,7 @@ async function installUV() {
 }
 
 /**
- * Get UV command
+ * Get UV command — prefer PATH, fall back to ~/.platformio/.cache/uv
  */
 async function getUVCommand() {
   try {
