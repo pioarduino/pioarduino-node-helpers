@@ -30,6 +30,18 @@ const tar = require('tar'); // eslint-disable-line
 
 const execFile = promisify(require('child_process').execFile);
 
+async function execPowerShell(args, options) {
+  try {
+    return await execFile('pwsh', args, options);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      log('info', 'pwsh not found, falling back to powershell.exe');
+      return await execFile('powershell.exe', args, options);
+    }
+    throw err;
+  }
+}
+
 // Constants matching penv.py
 const UV_INSTALL_SCRIPT_UNIX = 'https://astral.sh/uv/install.sh';
 const UV_INSTALL_SCRIPT_WINDOWS = 'https://astral.sh/uv/install.ps1';
@@ -200,8 +212,7 @@ async function installUvDownload(cacheDir) {
     fs.mkdirSync(extractDir, { recursive: true });
 
     if (proc.IS_WINDOWS) {
-      await execFile(
-        'pwsh',
+      await execPowerShell(
         [
           '-NoProfile',
           '-NonInteractive',
@@ -258,8 +269,7 @@ async function installUvWithScript(cacheDir) {
       });
       const tempScriptPath = path.join(tmpScriptDir, 'install.ps1');
       fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
-      await execFile(
-        'pwsh',
+      await execPowerShell(
         [
           '-NoProfile',
           '-NonInteractive',
