@@ -492,7 +492,7 @@ export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
         );
         log('info', 'uv installed into penv via uv pip install');
       } catch (uvInstallErr) {
-        log('warn', `Could not install uv into penv: ${uvInstallErr.message}`);
+        throw new Error(`Could not install uv into penv: ${uvInstallErr.message}`);
       }
 
       return penvDir;
