@@ -12,7 +12,7 @@ import { promises as fs } from 'fs';
 import { getCommandOutput } from '../proc';
 import path from 'path';
 
-export const INSTALLER_SCRIPT_VERSION = '1.6.2';
+const INSTALLER_SCRIPT_VERSION = '1.6.2';
 
 const PYTHON_SCRIPT_CODE = `
 # Copyright (c) 2014-present PlatformIO <contact@platformio.org>
@@ -87,7 +87,7 @@ if __name__ == "__main__":
     main()
 `;
 
-export async function getInstallerScript() {
+async function getInstallerScript() {
   const scriptPath = path.join(
     core.getTmpDir(),
     `get-pioarduino-${INSTALLER_SCRIPT_VERSION}.py`,
