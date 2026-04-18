@@ -36,7 +36,7 @@ async function main() {
 
     // Step 2: Verify Python can be found
     console.log('Step 2: Verifying Python can be found...');
-    const foundPath = await getPythonExecutablePath('3.13');
+    const foundPath = await getPythonExecutablePath();
     console.log('✓ Python found via getPythonExecutablePath()');
     console.log(`  Found path: ${foundPath}`);
     console.log();

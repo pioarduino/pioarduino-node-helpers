@@ -10,6 +10,8 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import https from 'node:https';
+import { pipeline } from 'node:stream/promises';
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -53,6 +55,28 @@ async function isUVAvailable() {
 }
 
 /**
+ * Download a URL to a string via https (follows redirects)
+ */
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    const get = (u) =>
+      https.get(u, { headers: { 'User-Agent': 'node' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return get(res.headers.location);
+        }
+        if (res.statusCode !== 200) {
+          return reject(new Error(`HTTP ${res.statusCode} for ${u}`));
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString()));
+        res.on('error', reject);
+      }).on('error', reject);
+    get(url);
+  });
+}
+
+/**
  * Install UV
  */
 async function installUV() {
@@ -60,14 +84,14 @@ async function installUV() {
 
   try {
     if (IS_WINDOWS) {
-      // Windows: Use PowerShell
+      const script = await fetchText('https://astral.sh/uv/install.ps1');
       await execAsync(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"',
-        { timeout: 120000 }
+        `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '`"')}"`,
+        { timeout: 120000 },
       );
     } else {
-      // Unix/Linux/macOS: Use shell
-      await execAsync('curl -LsSf https://astral.sh/uv/install.sh | sh', {
+      const script = await fetchText('https://astral.sh/uv/install.sh');
+      await execAsync(`sh -c '${script.replace(/'/g, "'\\''")}' `, {
         timeout: 120000,
       });
     }
