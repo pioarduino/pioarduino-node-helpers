@@ -69,11 +69,14 @@ async function bootstrapUV() {
     const script = await fetchText('https://astral.sh/uv/install.ps1');
     const tmp = path.join(cacheDir, `uv-install-${Date.now()}.ps1`);
     fs.writeFileSync(tmp, script, 'utf-8');
+    const psArgs = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmp];
     try {
-      await execAsync(
-        `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${tmp}"`,
-        { timeout: 120000, env },
-      );
+      try {
+        await execFileAsync('pwsh', psArgs, { timeout: 120000, env });
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        await execFileAsync('powershell.exe', psArgs, { timeout: 120000, env });
+      }
     } finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
   } else {
     const script = await fetchText('https://astral.sh/uv/install.sh');
