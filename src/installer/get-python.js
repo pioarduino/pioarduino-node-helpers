@@ -267,7 +267,9 @@ async function installUvWithScript(cacheDir) {
     try {
       if (proc.IS_WINDOWS) {
         const scriptPath = path.join(tmpDir, 'install.ps1');
-        const { body } = await got(UV_INSTALL_SCRIPT_WINDOWS, { timeout: { request: 30000 } });
+        const { body } = await got(UV_INSTALL_SCRIPT_WINDOWS, {
+          timeout: { request: 30000 },
+        });
         fs.writeFileSync(scriptPath, body);
         await execFile(
           'powershell',
@@ -276,12 +278,18 @@ async function installUvWithScript(cacheDir) {
         );
       } else {
         const scriptPath = path.join(tmpDir, 'install.sh');
-        const { body } = await got(UV_INSTALL_SCRIPT_UNIX, { timeout: { request: 30000 } });
+        const { body } = await got(UV_INSTALL_SCRIPT_UNIX, {
+          timeout: { request: 30000 },
+        });
         fs.writeFileSync(scriptPath, body, { mode: 0o755 });
         await execFile('sh', [scriptPath], { timeout: 900000, env });
       }
     } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
     }
 
     if (fs.existsSync(uvDest)) {
@@ -426,6 +434,21 @@ export async function moveUvToPenv() {
 // ============================================================
 
 export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
+  // If uvExe lives inside penvDir, copy it to a temp location before deleting
+  let safeTmpDir = null;
+  const resolvedUv = path.resolve(uvExe);
+  const resolvedPenv = path.resolve(penvDir);
+  if (resolvedUv.startsWith(resolvedPenv + path.sep)) {
+    safeTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uv-safe-'));
+    const safeUvPath = path.join(safeTmpDir, UV_EXE);
+    fs.copyFileSync(resolvedUv, safeUvPath);
+    if (!proc.IS_WINDOWS) {
+      fs.chmodSync(safeUvPath, 0o755);
+    }
+    log('info', `Copied penv-resident uv to safe location: ${safeUvPath}`);
+    uvExe = safeUvPath;
+  }
+
   // Remove existing directory if it exists
   if (fs.existsSync(penvDir)) {
     fs.rmSync(penvDir, { recursive: true, force: true });
@@ -480,6 +503,14 @@ export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
   } catch (err) {
     log('error', `Failed to create venv with uv: ${err.message}`);
     return null;
+  } finally {
+    if (safeTmpDir) {
+      try {
+        fs.rmSync(safeTmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
   }
 }
 
