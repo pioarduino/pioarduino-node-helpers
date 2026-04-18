@@ -369,17 +369,17 @@ export async function getUvExecutable() {
     log('info', 'Cached uv not usable, reinstalling');
   }
 
-  // 4. Primary: official installer script via got (no external tools needed)
-  let uvExe = await installUvWithScript(cacheDir);
+  // 4. Primary: direct binary download with SHA256 verification
+  let uvExe = await installUvDownload(cacheDir);
   if (uvExe && (await validateUv(uvExe))) {
-    log('info', `uv installed at ${uvExe}`);
+    log('info', `uv downloaded at ${uvExe}`);
     return uvExe;
   }
 
-  // 5. Fallback: direct binary download with SHA256 verification
-  uvExe = await installUvDownload(cacheDir);
+  // 5. Fallback: official installer script
+  uvExe = await installUvWithScript(cacheDir);
   if (uvExe && (await validateUv(uvExe))) {
-    log('info', `uv downloaded at ${uvExe}`);
+    log('info', `uv installed at ${uvExe}`);
     return uvExe;
   }
 

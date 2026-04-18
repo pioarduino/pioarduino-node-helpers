@@ -254,8 +254,8 @@ async function main() {
   } else {
     console.log('✓ All tests passed!');
     console.log();
-    console.log('PlatformIO has been successfully installed using UV!');
-    console.log(`Installation location: ${path.join(os.homedir(), '.platformio', 'penv')}`);
+    console.log('PlatformIO was successfully installed using UV in a temporary test venv.');
+    console.log('The temporary installation was cleaned up after the test.');
     process.exit(0);
   }
 }
