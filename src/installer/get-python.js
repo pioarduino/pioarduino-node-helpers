@@ -194,8 +194,10 @@ async function installUvDownload(cacheDir) {
 
     if (proc.IS_WINDOWS) {
       await execFile(
-        'powershell',
+        'pwsh',
         [
+          '-NoProfile',
+          '-NonInteractive',
           '-Command',
           `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractDir}'`,
         ],
@@ -248,8 +250,8 @@ async function installUvWithScript(cacheDir) {
       tempScriptPath = path.join(cacheDir, `uv-install-${Date.now()}.ps1`);
       fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
       await execFile(
-        'powershell',
-        ['-ExecutionPolicy', 'ByPass', '-File', tempScriptPath],
+        'pwsh',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'ByPass', '-File', tempScriptPath],
         { timeout: 900000, env },
       );
     } else {
