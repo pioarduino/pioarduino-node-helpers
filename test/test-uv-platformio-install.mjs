@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { resolveUV } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 
@@ -42,19 +43,21 @@ async function runTests() {
     // Test 1: Find/Install Python via uv python find
     console.log('Test 1: Finding/Installing Python...');
     let python;
+    let uvExe;
     try {
+      uvExe = await resolveUV();
       try {
-        const { stdout } = await execAsync('uv python find 3.13', { timeout: 10000 });
+        const { stdout } = await execAsync(`"${uvExe}" python find 3.13`, { timeout: 10000 });
         python = stdout.trim();
         await fs.access(python);
         pass(`Found UV Python: ${python}`);
       } catch {
         // If UV Python not found, install it
         console.log('  UV Python not found, installing...');
-        await execAsync('uv python install 3.13', { timeout: 300000 });
+        await execAsync(`"${uvExe}" python install 3.13`, { timeout: 300000 });
         console.log('  UV Python installed');
 
-        const { stdout } = await execAsync('uv python find 3.13', { timeout: 10000 });
+        const { stdout } = await execAsync(`"${uvExe}" python find 3.13`, { timeout: 10000 });
         python = stdout.trim();
         await fs.access(python);
         pass(`Installed and found UV Python: ${python}`);
@@ -79,7 +82,7 @@ async function runTests() {
     console.log('Test 3: Creating UV virtual environment...');
     try {
       const startTime = Date.now();
-      await execAsync(`uv venv --python "${python}" "${penvDir}"`, {
+      await execAsync(`"${uvExe}" venv --python "${python}" "${penvDir}"`, {
         timeout: 60000,
       });
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -104,7 +107,7 @@ async function runTests() {
       
       const startTime = Date.now();
       const { stdout, stderr } = await execAsync(
-        `uv pip install --python "${venvPython}" platformio`,
+        `"${uvExe}" pip install --python "${venvPython}" platformio`,
         {
           timeout: 600000, // 10 minutes
           maxBuffer: 50 * 1024 * 1024,
@@ -214,7 +217,7 @@ async function runTests() {
         ? path.join(binDir, 'python.exe')
         : path.join(binDir, 'python3');
       
-      const { stdout } = await execAsync(`uv pip list --python "${venvPython}"`, {
+      const { stdout } = await execAsync(`"${uvExe}" pip list --python "${venvPython}"`, {
         timeout: 30000,
       });
       

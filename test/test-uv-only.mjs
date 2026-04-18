@@ -10,27 +10,12 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import fs from 'node:fs';
 import https from 'node:https';
+import { getUVCacheDir, getUVExePath, IS_WINDOWS } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 
 // Determine if Windows
 const IS_WINDOWS = process.platform === 'win32';
-
-/**
- * Get the ~/.platformio/.cache directory (mirrors core.getCacheDir())
- */
-function getUVCacheDir() {
-  const homeDir = process.env.USERPROFILE || process.env.HOME;
-  return path.join(homeDir, '.platformio', '.cache');
-}
-
-/**
- * Get UV executable path inside ~/.platformio/.cache
- */
-function getUVExecutablePath() {
-  const uvExe = IS_WINDOWS ? 'uv.exe' : 'uv';
-  return path.join(getUVCacheDir(), uvExe);
-}
 
 /**
  * Check if UV is available
@@ -42,9 +27,9 @@ async function isUVAvailable() {
     console.log('✓ UV is available on system PATH');
     return true;
   } catch {
-    // UV not in PATH, check default installation location
+    // UV not in PATH, check cache dir
     try {
-      const uvPath = getUVExecutablePath();
+      const uvPath = getUVExePath();
       await execAsync(`"${uvPath}" --version`);
       console.log(`✓ UV found at: ${uvPath}`);
       return true;
@@ -138,7 +123,7 @@ async function getUVCommand() {
     await execAsync('uv --version');
     return 'uv';
   } catch {
-    return getUVExecutablePath();
+    return getUVExePath();
   }
 }
 

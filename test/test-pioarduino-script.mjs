@@ -7,6 +7,7 @@
 
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { resolveUV } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 
@@ -34,8 +35,8 @@ function fail(message, error) {
  */
 async function getUVPythonPath() {
   try {
-    const uvCommand = IS_WINDOWS ? 'uv.exe' : 'uv';
-    const { stdout } = await execAsync(`${uvCommand} python find 3.13`);
+    const uvExe = await resolveUV();
+    const { stdout } = await execAsync(`"${uvExe}" python find 3.13`);
     return stdout.trim();
   } catch (err) {
     throw new Error(`Could not find UV-managed Python: ${err.message}`);

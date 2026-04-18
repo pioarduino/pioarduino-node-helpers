@@ -10,10 +10,7 @@ import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { getUVExePath } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -38,14 +35,17 @@ function fail(message, error) {
 }
 
 async function findUv() {
+  // Always prefer the cache dir location; fall back to PATH
+  const cached = getUVExePath();
+  try {
+    await fs.access(cached);
+    return cached;
+  } catch { /* not cached yet */ }
   try {
     await execAsync(`${UV_EXE} --version`);
     return UV_EXE;
   } catch {
-    const homeDir = process.env.USERPROFILE || process.env.HOME;
-    const uvPath = path.join(homeDir, '.local', 'bin', UV_EXE);
-    await fs.access(uvPath);
-    return uvPath;
+    throw new Error(`uv not found. Expected at: ${cached}`);
   }
 }
 
