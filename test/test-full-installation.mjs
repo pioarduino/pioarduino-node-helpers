@@ -39,13 +39,13 @@ async function runTests() {
     const penvDir = path.join(coreDir, 'penv');
 
     try {
-        // Test 1: Clean environment
-        console.log('Test 1: Preparing clean environment...');
+        // Test 1: Check environment
+        console.log('Test 1: Checking environment...');
         try {
-            await fs.rm(penvDir, { recursive: true, force: true });
-            pass('Removed existing penv directory');
+            await fs.access(penvDir);
+            pass('penv directory exists');
         } catch {
-            pass('No existing penv directory to remove');
+            pass('No existing penv directory (will be created on first install)');
         }
         console.log();
 

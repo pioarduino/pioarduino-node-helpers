@@ -12,10 +12,11 @@
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import os from 'node:os';
 import fs from 'node:fs';
 import https from 'node:https';
 import {
-  getUVCacheDir, getUVCachePath, getUVPenvPath, getPenvDir,
+  getUVCacheDir, getUVCachePath, resolveUV,
   IS_WINDOWS, UV_EXE, BIN_DIR, PYTHON_EXE,
 } from './uv-helper.mjs';
 
@@ -89,53 +90,16 @@ async function bootstrapUV() {
  * Find a working uv: PATH → penv/bin → cache. Downloads if needed.
  */
 async function findOrInstallUV() {
-  // 1. PATH
   try {
-    const probe = IS_WINDOWS ? `where ${UV_EXE}` : `which ${UV_EXE}`;
-    const { stdout } = await execAsync(probe, { timeout: 5000 });
-    const found = stdout.trim().split('\n')[0].trim();
-    if (found) {
-      await execAsync(`"${found}" --version`, { timeout: 5000 });
-      return found;
-    }
-  } catch { /* not in PATH */ }
+    return await resolveUV();
+  } catch { /* not found anywhere */ }
 
-  // 2. penv/bin
-  const penvUv = getUVPenvPath();
-  try {
-    await execAsync(`"${penvUv}" --version`, { timeout: 5000 });
-    return penvUv;
-  } catch { /* not in penv */ }
-
-  // 3. cache (bootstrap)
-  const cachedUv = getUVCachePath();
-  try {
-    await execAsync(`"${cachedUv}" --version`, { timeout: 5000 });
-    return cachedUv;
-  } catch { /* not cached */ }
-
-  // 4. Download bootstrap
+  // Download bootstrap into cache
   await bootstrapUV();
+  const cachedUv = getUVCachePath();
   await execAsync(`"${cachedUv}" --version`, { timeout: 5000 });
   return cachedUv;
-}
-
-/**
- * Clean up bootstrap UV from cache dir.
- */
-function cleanupCache() {
-  const cacheDir = getUVCacheDir();
-  for (const name of [UV_EXE, IS_WINDOWS ? 'uvx.exe' : 'uvx']) {
-    const p = path.join(cacheDir, name);
-    try { fs.unlinkSync(p); console.log(`  Removed ${p}`); } catch { /* ok */ }
-  }
-  const uvSubdir = path.join(cacheDir, 'uv');
-  try {
-    if (fs.statSync(uvSubdir).isDirectory()) {
-      fs.rmSync(uvSubdir, { recursive: true, force: true });
-      console.log(`  Removed ${uvSubdir}`);
-    }
-  } catch { /* ok */ }
+  return cachedUv;
 }
 
 async function runTests() {
@@ -160,18 +124,17 @@ async function runTests() {
   console.log();
 
   // -----------------------------------------------------------
-  // Test 2: Create venv at ~/.platformio/penv with Python 3.13
+  // Test 2: Create venv with Python 3.13 (in temp dir)
   // -----------------------------------------------------------
   console.log('Test 2: Creating venv with Python 3.13...');
-  const penvDir = getPenvDir();
   try {
-    fs.rmSync(penvDir, { recursive: true, force: true });
+    fs.rmSync(testPenvDir, { recursive: true, force: true });
     await execFileAsync(
       uvExe,
-      ['venv', penvDir, '--python', '3.13', '--python-preference', 'managed'],
+      ['venv', testPenvDir, '--python', '3.13', '--python-preference', 'managed'],
       { timeout: 300000 },
     );
-    const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+    const venvPython = path.join(testPenvDir, BIN_DIR, PYTHON_EXE);
     fs.accessSync(venvPython);
     const { stdout } = await execAsync(`"${venvPython}" --version`, { timeout: 10000 });
     pass(`Venv created — ${stdout.trim()}`);
@@ -182,70 +145,97 @@ async function runTests() {
   console.log();
 
   // -----------------------------------------------------------
-  // Test 3: Install UV permanently into penv via uv pip install
+  // Test 3: Install UV permanently into venv via uv pip install
   // -----------------------------------------------------------
-  console.log('Test 3: Installing UV into penv/bin...');
-  const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+  console.log('Test 3: Installing UV into venv/bin...');
+  const venvPython = path.join(testPenvDir, BIN_DIR, PYTHON_EXE);
+  const testUvPath = path.join(testPenvDir, BIN_DIR, UV_EXE);
   try {
     await execFileAsync(
       uvExe,
       ['pip', 'install', 'uv>=0.1.0', `--python=${venvPython}`],
       { timeout: 120000 },
     );
-    const penvUv = getUVPenvPath();
-    fs.accessSync(penvUv);
-    const { stdout } = await execAsync(`"${penvUv}" --version`, { timeout: 5000 });
-    pass(`UV installed in penv: ${stdout.trim()}`);
+    fs.accessSync(testUvPath);
+    const { stdout } = await execAsync(`"${testUvPath}" --version`, { timeout: 5000 });
+    pass(`UV installed in venv: ${stdout.trim()}`);
   } catch (err) {
-    fail('Failed to install UV into penv', err);
+    fail('Failed to install UV into venv', err);
     return;
   }
   console.log();
 
   // -----------------------------------------------------------
-  // Test 4: Clean up bootstrap cache
+  // Test 4: Verify UV from venv/bin works standalone
   // -----------------------------------------------------------
-  console.log('Test 4: Cleaning up cache...');
+  console.log('Test 4: Verifying venv UV works standalone...');
   try {
-    cleanupCache();
-    const cachePath = getUVCachePath();
-    const cacheGone = !fs.existsSync(cachePath);
-    if (cacheGone) {
-      pass('Bootstrap UV removed from cache');
-    } else {
-      // cache UV might be the same as system UV — not an error
-      pass('Cache UV still present (may be system-managed)');
-    }
+    const { stdout } = await execAsync(`"${testUvPath}" --version`, { timeout: 5000 });
+    pass(`venv UV works: ${stdout.trim()}`);
   } catch (err) {
-    fail('Cache cleanup error', err);
+    fail('venv UV not functional', err);
   }
   console.log();
 
   // -----------------------------------------------------------
-  // Test 5: Verify UV from penv/bin still works
+  // Test 5: Verify Python in venv works
   // -----------------------------------------------------------
-  console.log('Test 5: Verifying penv UV works standalone...');
-  try {
-    const penvUv = getUVPenvPath();
-    const { stdout } = await execAsync(`"${penvUv}" --version`, { timeout: 5000 });
-    pass(`penv UV works: ${stdout.trim()}`);
-  } catch (err) {
-    fail('penv UV not functional after cache cleanup', err);
-  }
-  console.log();
-
-  // -----------------------------------------------------------
-  // Test 6: Verify Python in penv works
-  // -----------------------------------------------------------
-  console.log('Test 6: Verifying penv Python...');
+  console.log('Test 5: Verifying venv Python...');
   try {
     const { stdout } = await execAsync(
       `"${venvPython}" -c "import sys; print(f'Python {sys.version}')"`,
       { timeout: 10000 },
     );
-    pass(`penv Python: ${stdout.trim()}`);
+    pass(`venv Python: ${stdout.trim()}`);
   } catch (err) {
-    fail('penv Python not functional', err);
+    fail('venv Python not functional', err);
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 6: Cleanup test venv and ensure real penv exists
+  // -----------------------------------------------------------
+  console.log('Test 6: Cleaning up test venv...');
+  try {
+    fs.rmSync(testPenvDir, { recursive: true, force: true });
+    pass('Test venv removed');
+  } catch {
+    console.log('  Note: Could not remove test venv');
+  }
+  console.log();
+
+  // -----------------------------------------------------------
+  // Test 7: Ensure ~/.platformio/penv has UV for other tests
+  // -----------------------------------------------------------
+  console.log('Test 7: Ensuring real penv has UV...');
+  const realPenvDir = path.join(os.homedir(), '.platformio', 'penv');
+  const realPenvUv = path.join(realPenvDir, BIN_DIR, UV_EXE);
+  try {
+    // Check if penv already has a working UV
+    fs.accessSync(realPenvUv);
+    await execAsync(`"${realPenvUv}" --version`, { timeout: 5000 });
+    pass('Real penv already has UV');
+  } catch {
+    // Need to create penv with UV
+    console.log('  Setting up real penv...');
+    try {
+      fs.rmSync(realPenvDir, { recursive: true, force: true });
+      await execFileAsync(
+        uvExe,
+        ['venv', realPenvDir, '--python', '3.13', '--python-preference', 'managed'],
+        { timeout: 300000 },
+      );
+      const realPenvPython = path.join(realPenvDir, BIN_DIR, PYTHON_EXE);
+      await execFileAsync(
+        uvExe,
+        ['pip', 'install', 'uv>=0.1.0', `--python=${realPenvPython}`],
+        { timeout: 120000 },
+      );
+      fs.accessSync(realPenvUv);
+      pass('Real penv created with UV');
+    } catch (err) {
+      fail('Could not set up real penv', err);
+    }
   }
   console.log();
 

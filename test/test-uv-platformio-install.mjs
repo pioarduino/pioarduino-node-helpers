@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { resolveUV, getPenvDir, BIN_DIR, PYTHON_EXE, UV_EXE, getUVPenvPath } from './uv-helper.mjs';
+import { resolveUV, BIN_DIR, PYTHON_EXE, UV_EXE } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -37,29 +37,27 @@ async function runTests() {
   console.log('='.repeat(60));
   console.log();
 
-  const coreDir = path.join(os.homedir(), '.platformio');
-  const penvDir = getPenvDir();
+  // Use a temporary directory so we never destroy the real ~/.platformio/penv
+  const penvDir = path.join(os.tmpdir(), `pio-test-pio-install-${Date.now()}`);
 
   try {
     // Test 1: Find/Install Python via uv python find
     console.log('Test 1: Finding/Installing Python...');
-    let python;
     let uvExe;
     try {
       uvExe = await resolveUV();
       try {
         const { stdout } = await execAsync(`"${uvExe}" python find 3.13`, { timeout: 10000 });
-        python = stdout.trim();
+        const python = stdout.trim();
         await fs.access(python);
         pass(`Found UV Python: ${python}`);
       } catch {
-        // If UV Python not found, install it
         console.log('  UV Python not found, installing...');
         await execAsync(`"${uvExe}" python install 3.13`, { timeout: 300000 });
         console.log('  UV Python installed');
 
         const { stdout } = await execAsync(`"${uvExe}" python find 3.13`, { timeout: 10000 });
-        python = stdout.trim();
+        const python = stdout.trim();
         await fs.access(python);
         pass(`Installed and found UV Python: ${python}`);
       }
@@ -69,18 +67,8 @@ async function runTests() {
     }
     console.log();
 
-    // Test 2: Clean up existing installation
-    console.log('Test 2: Cleaning up existing installation...');
-    try {
-      await fs.rm(penvDir, { recursive: true, force: true });
-      pass('Removed existing penv directory');
-    } catch {
-      pass('No existing penv to remove');
-    }
-    console.log();
-
-    // Test 3: Create UV venv (simulating pioarduino-core.js)
-    console.log('Test 3: Creating UV virtual environment...');
+    // Test 2: Create UV venv
+    console.log('Test 2: Creating UV virtual environment...');
     try {
       const startTime = Date.now();
       await execFileAsync(
@@ -96,20 +84,20 @@ async function runTests() {
     }
     console.log();
 
-    // Test 3b: Install UV into penv/bin
-    console.log('Test 3b: Installing UV into penv/bin...');
+    // Test 3: Install UV into venv/bin
+    console.log('Test 3: Installing UV into venv/bin...');
+    const venvPy = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+    const venvUv = path.join(penvDir, BIN_DIR, UV_EXE);
     try {
-      const venvPy = path.join(penvDir, BIN_DIR, PYTHON_EXE);
       await execFileAsync(
         uvExe,
         ['pip', 'install', 'uv>=0.1.0', `--python=${venvPy}`],
         { timeout: 120000 },
       );
-      const penvUv = getUVPenvPath();
-      await fs.access(penvUv);
-      pass(`UV installed into penv: ${penvUv}`);
+      await fs.access(venvUv);
+      pass(`UV installed into venv: ${venvUv}`);
     } catch (err) {
-      fail('Failed to install UV into penv', err);
+      fail('Failed to install UV into venv', err);
       return false;
     }
     console.log();
@@ -118,13 +106,9 @@ async function runTests() {
     console.log('Test 4: Installing PlatformIO with UV pip into venv...');
     console.log('  This may take several minutes...');
     try {
-      const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
-      // Use penv UV for install (it's now in penv/bin)
-      const penvUv = getUVPenvPath();
-      
       const startTime = Date.now();
       const { stdout } = await execAsync(
-        `"${penvUv}" pip install "--python=${venvPython}" platformio`,
+        `"${venvUv}" pip install "--python=${venvPy}" platformio`,
         {
           timeout: 600000, // 10 minutes
           maxBuffer: 50 * 1024 * 1024,
@@ -217,13 +201,10 @@ async function runTests() {
     }
     console.log();
 
-    // Test 7: Verify installation with UV pip list (using penv UV)
+    // Test 7: Verify installation with UV pip list (using venv UV)
     console.log('Test 7: Verifying installation with UV pip list...');
     try {
-      const penvUvExe = getUVPenvPath();
-      const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
-      
-      const { stdout } = await execAsync(`"${penvUvExe}" pip list "--python=${venvPython}"`, {
+      const { stdout } = await execAsync(`"${venvUv}" pip list "--python=${venvPy}"`, {
         timeout: 30000,
       });
       
@@ -248,6 +229,13 @@ async function runTests() {
     console.error('Unexpected error:', err);
     console.error('Stack:', err.stack);
     return false;
+  } finally {
+    // Always clean up the temp venv
+    try {
+      const { rmSync } = await import('fs');
+      rmSync(penvDir, { recursive: true, force: true });
+      console.log(`Cleaned up test venv: ${penvDir}`);
+    } catch { /* ignore */ }
   }
 }
 
