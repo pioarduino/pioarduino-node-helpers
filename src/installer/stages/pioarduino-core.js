@@ -22,9 +22,11 @@ import { promises as fs } from 'fs';
 import { lookup } from 'dns';
 import path from 'path';
 import { promisify } from 'util';
+import semver from 'semver';
 
 const dnsLookup = promisify(lookup);
 const execFile = promisify(require('child_process').execFile);
+const INSTALLER_VERSION = require('../../../package.json').version;
 
 export default class pioarduinoCoreStage extends BaseStage {
   static getBuiltInPythonDir() {
@@ -246,7 +248,9 @@ export default class pioarduinoCoreStage extends BaseStage {
     try {
       await execFile(platformioExe, ['--help'], { timeout: 30000 });
     } catch (err) {
-      throw new Error(`Could not run \`${platformioExe} --help\`. Error: ${err.message}`);
+      throw new Error(
+        `Could not run \`${platformioExe} --help\`. Error: ${err.message}`,
+      );
     }
 
     // Fetch core version and python version via inline Python
@@ -277,10 +281,21 @@ export default class pioarduinoCoreStage extends BaseStage {
       penv_dir: penvDir,
       penv_bin_dir: penvBinDir,
       platformio_exe: platformioExe,
+      installer_version: INSTALLER_VERSION,
       python_exe: pythonExe,
       system: proc.getSysType(),
       is_develop_core: develop,
     };
+
+    // Validate version spec if provided
+    if (this.params.pioCoreVersionSpec && coreVersion) {
+      const coerced = semver.coerce(coreVersion);
+      if (coerced && !semver.satisfies(coerced, this.params.pioCoreVersionSpec)) {
+        throw new Error(
+          `pioarduino Core version ${coreVersion} does not match version requirements ${this.params.pioCoreVersionSpec}.`,
+        );
+      }
+    }
 
     // Auto-upgrade if enabled
     if (

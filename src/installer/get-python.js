@@ -25,7 +25,8 @@ import os from 'os';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { promisify } from 'util';
-import tar from 'tar';
+
+const tar = require('tar'); // eslint-disable-line
 
 const execFile = promisify(require('child_process').execFile);
 
@@ -58,7 +59,9 @@ function getUvPlatformTag() {
   if (system === 'darwin') {
     const archMap = { arm64: 'aarch64', x64: 'x86_64' };
     const uvArch = archMap[arch];
-    if (uvArch) return `uv-${uvArch}-apple-darwin`;
+    if (uvArch) {
+      return `uv-${uvArch}-apple-darwin`;
+    }
   } else if (system === 'linux') {
     const isMusl = detectMuslLinux();
     const archMap = {
@@ -74,7 +77,9 @@ function getUvPlatformTag() {
   } else if (system === 'win32') {
     const archMap = { x64: 'x86_64', arm64: 'aarch64' };
     const uvArch = archMap[arch];
-    if (uvArch) return `uv-${uvArch}-pc-windows-msvc`;
+    if (uvArch) {
+      return `uv-${uvArch}-pc-windows-msvc`;
+    }
   }
 
   return null;
@@ -143,7 +148,9 @@ function findFileRecursive(filename, dir) {
     }
     if (entry.isDirectory()) {
       const found = findFileRecursive(filename, fullPath);
-      if (found) return found;
+      if (found) {
+        return found;
+      }
     }
   }
   return null;
@@ -272,7 +279,9 @@ async function installUvWithScript(cacheDir) {
 
 function findInPath(exename) {
   const envPath = process.env.PLATFORMIO_PATH || process.env.PATH;
-  if (!envPath) return null;
+  if (!envPath) {
+    return null;
+  }
 
   for (const dir of envPath.split(path.delimiter)) {
     const fullPath = path.join(dir, exename);
@@ -505,7 +514,7 @@ export async function installPortablePython() {
   return pythonPath;
 }
 
-async function getPythonExecutablePath(pythonVersion = '3.13') {
+async function getPythonExecutablePath() {
   const penvDir = core.getEnvDir();
   const pythonPath = path.join(penvDir, BIN_DIR, PYTHON_EXE);
 
