@@ -234,6 +234,7 @@ async function installUvDownload(cacheDir) {
 }
 
 async function installUvWithScript(cacheDir) {
+  let tempScriptPath = null;
   try {
     fs.mkdirSync(cacheDir, { recursive: true });
     const uvDest = path.join(cacheDir, UV_EXE);
@@ -241,22 +242,25 @@ async function installUvWithScript(cacheDir) {
 
     if (proc.IS_WINDOWS) {
       log('info', 'Installing uv using official Windows installer');
-      // Download script with got, then execute via powershell
       const scriptResponse = await got(UV_INSTALL_SCRIPT_WINDOWS, {
         timeout: { request: 30000 },
       });
+      tempScriptPath = path.join(cacheDir, `uv-install-${Date.now()}.ps1`);
+      fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
       await execFile(
         'powershell',
-        ['-ExecutionPolicy', 'ByPass', '-Command', scriptResponse.body],
+        ['-ExecutionPolicy', 'ByPass', '-File', tempScriptPath],
         { timeout: 900000, env },
       );
     } else {
       log('info', 'Installing uv using official Unix installer');
-      // Download script with got, then pipe to sh
       const scriptResponse = await got(UV_INSTALL_SCRIPT_UNIX, {
         timeout: { request: 30000 },
       });
-      await execFile('sh', ['-c', scriptResponse.body], { timeout: 900000, env });
+      tempScriptPath = path.join(cacheDir, `uv-install-${Date.now()}.sh`);
+      fs.writeFileSync(tempScriptPath, scriptResponse.body, 'utf-8');
+      fs.chmodSync(tempScriptPath, 0o755);
+      await execFile('sh', [tempScriptPath], { timeout: 900000, env });
     }
 
     if (fs.existsSync(uvDest)) {
@@ -268,6 +272,14 @@ async function installUvWithScript(cacheDir) {
     }
   } catch (err) {
     log('warn', `Failed to install uv with official script: ${err.message}`);
+  } finally {
+    if (tempScriptPath) {
+      try {
+        fs.unlinkSync(tempScriptPath);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
   }
 
   return null;
@@ -347,10 +359,12 @@ export async function createVenvWithUv(uvExe, penvDir) {
     fs.rmSync(penvDir, { recursive: true, force: true });
   }
 
-  // Ensure uv dir is in PATH
+  // Ensure uv dir is in PATH (exact entry match, safe against undefined PATH)
   const uvDir = path.dirname(uvExe);
-  if (!process.env.PATH.includes(uvDir)) {
-    process.env.PATH = uvDir + path.delimiter + process.env.PATH;
+  const existingPath = process.env.PATH || '';
+  const pathEntries = existingPath.split(path.delimiter);
+  if (!pathEntries.includes(uvDir)) {
+    process.env.PATH = uvDir + path.delimiter + existingPath;
   }
 
   try {
@@ -385,8 +399,13 @@ export async function createVenvWithUv(uvExe, penvDir) {
 // PlatformIO Installation with UV (adapted from core.py _install_with_uv)
 // ============================================================
 
-export async function installPlatformIOWithUv(uvExe, penvDir, develop = false) {
-  const venvPython = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+export async function installPlatformIOWithUv(
+  uvExe,
+  penvDir,
+  develop = false,
+  pythonExe = null,
+) {
+  const venvPython = pythonExe || path.join(penvDir, BIN_DIR, PYTHON_EXE);
   const packageSpec = develop ? PIO_CORE_DEVELOP_URL : PIO_CORE_PACKAGE;
 
   log('info', `Installing PlatformIO Core using uv (develop=${develop})`);
@@ -514,24 +533,47 @@ export async function installPortablePython() {
   return pythonPath;
 }
 
-async function getPythonExecutablePath() {
+async function getPythonExecutablePath(pythonVersion) {
   const penvDir = core.getEnvDir();
   const pythonPath = path.join(penvDir, BIN_DIR, PYTHON_EXE);
 
   try {
     await fs.promises.access(pythonPath, fs.constants.X_OK);
-    return pythonPath;
   } catch {
     if (proc.IS_WINDOWS) {
       try {
         await fs.promises.access(pythonPath);
-        return pythonPath;
       } catch {
-        // fall through
+        throw new Error(`Python not found in penv at: ${pythonPath}`);
       }
+    } else {
+      throw new Error(`Python not found in penv at: ${pythonPath}`);
     }
-    throw new Error(`Python not found in penv at: ${pythonPath}`);
   }
+
+  if (pythonVersion) {
+    // Validate the interpreter version matches the requested version
+    const { execFile: execFileCb } = require('child_process');
+    const execFileAsync = promisify(execFileCb);
+    try {
+      const { stdout } = await execFileAsync(pythonPath, ['--version'], {
+        timeout: 5000,
+      });
+      const versionMatch = stdout.trim().match(/Python (\d+\.\d+)/);
+      if (!versionMatch) {
+        throw new Error(`Could not parse Python version from: ${stdout.trim()}`);
+      }
+      if (!versionMatch[1].startsWith(pythonVersion.replace(/\.\*$/, ''))) {
+        throw new Error(
+          `Python version mismatch: found ${versionMatch[1]}, expected ${pythonVersion}`,
+        );
+      }
+    } catch (err) {
+      throw new Error(`Python version check failed at ${pythonPath}: ${err.message}`);
+    }
+  }
+
+  return pythonPath;
 }
 
 export { getPythonExecutablePath };
