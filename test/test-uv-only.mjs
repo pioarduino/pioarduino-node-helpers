@@ -99,8 +99,9 @@ async function findOrInstallUV() {
   const cachedUv = getUVCachePath();
   await execAsync(`"${cachedUv}" --version`, { timeout: 5000 });
   return cachedUv;
-  return cachedUv;
 }
+
+const testPenvDir = path.join(os.tmpdir(), `pio-test-uv-lifecycle-${Date.now()}`);
 
 async function runTests() {
   console.log('='.repeat(60));
