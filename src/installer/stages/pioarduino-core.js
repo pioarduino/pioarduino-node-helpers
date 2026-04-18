@@ -412,41 +412,32 @@ export default class pioarduinoCoreStage extends BaseStage {
     }
     withProgress('Preparing for installation', 10);
     try {
-      let uvPythonPath = null;
+      // Step 1: Find any available Python for bootstrapping
+      const bootstrapPython = await this.whereIsPython({ prompt: true });
+      console.info('Using bootstrap Python:', bootstrapPython);
+
+      // Step 2: Run pioinstaller to install UV
+      withProgress('Installing UV package manager', 20);
+      await callInstallerScript(bootstrapPython, ['install']);
+
+      // Step 3: Use UV to install Python 3.13
+      let pythonToUse = bootstrapPython;
       if (this.params.useBuiltinPython) {
-        withProgress('Installing Python 3.13 using UV', 10);
-        try {
-          // installPortablePython now returns the Python executable path directly
-          uvPythonPath = await installPortablePython();
-          console.info('UV-managed Python installed at:', uvPythonPath);
-        } catch (err) {
-          console.warn('UV Python installation failed:', err);
-          throw err;
-        }
+        withProgress('Installing Python 3.13 using UV', 40);
+        pythonToUse = await installPortablePython();
+        console.info('UV-managed Python installed at:', pythonToUse);
       }
 
-      withProgress('Installing pioarduino Core', 20);
-
-      // Use the Python installer script to set up penv with UV
-      const pythonToUse = uvPythonPath || (await this.whereIsPython({ prompt: true }));
-      console.info('Using Python for PlatformIO installation:', pythonToUse);
-
-      // Use the installer script to create penv and install PlatformIO
-      withProgress('Creating virtual environment and installing PlatformIO', 30);
-
-      // Note: The 'install' command doesn't support --dev, --version-spec, or --no-auto-upgrade
-      // These options are only available for the 'check' command
-      const scriptArgs = ['install'];
-
-      console.info('Running installer script with args:', scriptArgs);
-      const installOutput = await callInstallerScript(pythonToUse, scriptArgs);
+      // Step 4: Set up penv with Python 3.13
+      withProgress('Creating virtual environment and installing PlatformIO', 60);
+      const installOutput = await callInstallerScript(pythonToUse, ['install']);
       console.info('PlatformIO installation output:', installOutput);
 
-      // Load the core state from the installer script
+      // Step 5: Load core state
       withProgress('Loading pioarduino Core state', 80);
       await this.loadCoreState();
 
-      withProgress('Installing pioarduino Home', 80);
+      withProgress('Installing pioarduino Home', 90);
       await this.installPIOHome();
     } catch (err) {
       misc.reportError(err);
