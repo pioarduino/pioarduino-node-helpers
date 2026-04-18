@@ -91,10 +91,16 @@ async function installUV() {
       );
       fs.writeFileSync(tmpScript, script, 'utf-8');
       try {
-        await execAsync(
+        const { stdout, stderr } = await execAsync(
           `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`,
           { timeout: 120000 },
         );
+        if (stdout) console.log('uv install stdout:', stdout.trim());
+        if (stderr) console.log('uv install stderr:', stderr.trim());
+      } catch (err) {
+        console.error('uv install stdout:', err.stdout);
+        console.error('uv install stderr:', err.stderr);
+        throw err;
       } finally {
         try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
       }
