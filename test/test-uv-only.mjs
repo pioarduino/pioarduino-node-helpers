@@ -14,9 +14,6 @@ import { getUVCacheDir, getUVExePath, IS_WINDOWS } from './uv-helper.mjs';
 
 const execAsync = promisify(exec);
 
-// Determine if Windows
-const IS_WINDOWS = process.platform === 'win32';
-
 /**
  * Check if UV is available
  */
