@@ -457,9 +457,13 @@ export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
 
       // Install uv into the venv using uv itself — places uv binary in penv/bin
       try {
-        await execFile(uvExe, ['pip', 'install', 'uv>=0.1.0', `--python=${expectedPython}`], {
-          timeout: 120000,
-        });
+        await execFile(
+          uvExe,
+          ['pip', 'install', 'uv>=0.1.0', `--python=${expectedPython}`],
+          {
+            timeout: 120000,
+          },
+        );
         log('info', 'uv installed into penv via uv pip install');
       } catch (uvInstallErr) {
         log('warn', `Could not install uv into penv: ${uvInstallErr.message}`);
