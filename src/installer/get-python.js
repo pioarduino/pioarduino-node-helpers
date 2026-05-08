@@ -495,6 +495,23 @@ export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
         throw new Error(`Could not install uv into penv: ${uvInstallErr.message}`);
       }
 
+      // Install pip into the venv for compatibility with older PlatformIO versions.
+      // Use the venv's own uv binary. Failure is non-fatal.
+      try {
+        const venvUv = path.join(penvDir, BIN_DIR, UV_EXE);
+        await execFile(
+          venvUv,
+          ['pip', 'install', 'pip>=24.3', `--python=${expectedPython}`],
+          { timeout: 120000 },
+        );
+        log('info', 'pip installed into penv via venv uv for compatibility');
+      } catch (pipInstallErr) {
+        log(
+          'warn',
+          `Could not install pip into penv (non-fatal): ${pipInstallErr.message}`,
+        );
+      }
+
       return penvDir;
     }
 
@@ -511,6 +528,38 @@ export async function createVenvWithUv(uvExe, penvDir, pythonSpec = null) {
         // ignore cleanup errors
       }
     }
+  }
+}
+
+// ============================================================
+// Ensure pip is installed in penv (compat migration for existing penvs)
+// ============================================================
+
+export async function ensurePipInPenv(penvDir) {
+  const pythonExe = path.join(penvDir, BIN_DIR, PYTHON_EXE);
+  const venvUv = path.join(penvDir, BIN_DIR, UV_EXE);
+
+  // Quick check: can pip be imported?
+  try {
+    await execFile(pythonExe, ['-c', 'import pip'], { timeout: 5000 });
+    log('info', 'pip already available in penv');
+    return;
+  } catch {
+    // pip missing — install it
+  }
+
+  if (!fs.existsSync(venvUv)) {
+    log('warn', 'Cannot install pip: venv uv not found in penv');
+    return;
+  }
+
+  try {
+    await execFile(venvUv, ['pip', 'install', 'pip>=24.3', `--python=${pythonExe}`], {
+      timeout: 120000,
+    });
+    log('info', 'pip installed into penv via venv uv (compat migration)');
+  } catch (err) {
+    log('warn', `Could not install pip into penv (non-fatal): ${err.message}`);
   }
 }
 

@@ -11,6 +11,7 @@ import * as misc from '../../misc';
 import * as proc from '../../proc';
 import {
   createVenvWithUv,
+  ensurePipInPenv,
   findPythonExecutable,
   getPythonExecutablePath,
   getUvExecutable,
@@ -156,6 +157,8 @@ export default class pioarduinoCoreStage extends BaseStage {
               'Python check failed, but continuing with existing installation',
             );
           }
+          // Ensure pip is installed for compatibility with older PlatformIO versions
+          await ensurePipInPenv(penvDir);
         }
 
         // Test PlatformIO functionality if internet connection is available
