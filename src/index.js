@@ -13,6 +13,7 @@ import * as proc from './proc';
 
 import { ProjectTasks, TaskItem } from './project/tasks';
 
+import { createVenvWithUv, ensurePipInPenv } from './installer/get-python';
 import BaseStage from './installer/stages/base';
 import ProjectConfig from './project/config';
 import ProjectPool from './project/pool';
@@ -21,6 +22,8 @@ import pioarduinoCoreStage from './installer/stages/pioarduino-core';
 const installer = {
   BaseStage,
   pioarduinoCoreStage,
+  createVenvWithUv,
+  ensurePipInPenv,
 };
 
 const project = {

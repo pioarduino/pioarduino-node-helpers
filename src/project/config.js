@@ -22,11 +22,21 @@ from platformio.public import ProjectConfig
 config = ProjectConfig()
 envs = config.envs()
 
+def _monitor_speed(env):
+    value = config.get(f"env:{env}", "monitor_speed", default=None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
 print(json.dumps(dict(
   envs=envs,
   default_envs=config.default_envs(),
   default_env=config.get_default_env(),
-  env_platforms={env:config.get(f"env:{env}", "platform", default=None) for env in envs}
+  env_platforms={env:config.get(f"env:{env}", "platform", default=None) for env in envs},
+  env_monitor_speeds={env:_monitor_speed(env) for env in envs}
 )))
 `;
     const output = await core.getCorePythonCommandOutput(['-c', script], {
@@ -49,5 +59,10 @@ print(json.dumps(dict(
 
   getEnvPlatform(env) {
     return this._data.env_platforms[env];
+  }
+
+  getEnvMonitorSpeed(env) {
+    const speeds = this._data.env_monitor_speeds || {};
+    return speeds[env] ?? undefined;
   }
 }

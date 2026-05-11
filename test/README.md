@@ -1,143 +1,119 @@
 # Tests for pioarduino-node-helpers
 
-This directory contains tests for the Python installation workflow using UV.
+This directory contains integration tests for the Python/UV installation workflow.
 
-## Test Structure
+## Test Overview
 
-### Automated Test (`test-uv-only.mjs`)
+| Script | `npm run` | What it tests |
+|--------|-----------|---------------|
+| `test-uv-only.mjs` | `test:uv` | Full UV lifecycle: bootstrap → venv → uv in penv → cleanup |
+| `test-get-python.mjs` | `test:get-python` | All public functions of `src/installer/get-python.js` |
+| `test-installer-script.mjs` | `test:installer` | Installer stage pipeline |
+| `test-full-installation.mjs` | `test:full` | End-to-end install via built `dist/index.js` |
+| `test-uv-platformio-install.mjs` | `test:install` | PlatformIO Core install via uv |
+| `manual-test.js` | `test:manual` | Quick manual smoke test |
 
-Isolated test that verifies UV and Python installation without external dependencies:
+### `test-get-python.mjs` — what is covered
 
-- Checks UV availability
-- Installs UV if not present
-- Installs Python 3.13 via UV
-- Verifies Python execution
-- Platform-independent (Windows/macOS/Linux)
-
-### Manual Test Script (`manual-test.js`)
-
-A simple script for manual testing that:
-1. Installs Python 3.13 via UV
-2. Verifies Python can be found
-3. Tests Python execution with various commands
+1. **`getUvExecutable`** — UV found in PATH / penv / cache, or downloaded as fallback
+2. **`createVenvWithUv`** — venv created with Python 3.13; uv installed in venv; pip installed (compat); pip ≥ 24.3; pip importable
+3. **`moveUvToPenv`** — bootstrap UV removable from cache
+4. **`findPythonExecutable`** — PATH search for system Python 3.13
+5. **`getPythonExecutablePath`** — penv Python accessible, correct version, mismatch detection
+6. **`installPortablePython`** — real penv state verified (Python + uv + pip ≥ 24.3)
 
 ## Running Tests
 
 ### Prerequisites
 
-- Node.js 20 or higher
-- Internet connection (for downloading UV and Python)
+- Node.js ≥ 25
+- Internet connection (for downloading UV and Python on first run)
 
-### Run Automated Tests
+### Run All Tests
 
 ```bash
-# Run the main test suite
 npm test
+```
 
-# Or run directly
-node test/test-uv-only.mjs
+### Run Individual Tests
+
+```bash
+npm run test:uv
+npm run test:get-python
+npm run test:installer
+npm run test:full
+npm run test:install
 ```
 
 ### Run Manual Test
 
 ```bash
-node test/manual-test.js
+npm run test:manual
 ```
 
-## Test Assumptions
-
-The tests assume:
-- **No Python installed**: Tests simulate a clean environment without Python
-- **No UV installed**: Tests will install UV as part of the workflow
-- **Internet connection**: Required for downloading UV and Python
-- **Sufficient disk space**: ~100MB for UV and Python installation
-
-## Expected Behavior
+## Expected Behaviour
 
 ### First Run
-On the first run, the tests will:
-1. Install UV to `~/.local/bin/` (or `%USERPROFILE%\.local\bin\` on Windows)
-2. Use UV to download and install Python 3.13
-3. Verify Python is accessible and functional
+UV and Python 3.13 are downloaded and installed automatically.  
+This may take several minutes depending on internet speed.
 
-This may take 5-10 minutes depending on internet speed.
+UV is installed to:
+- Bootstrap (temporary): `~/.platformio/.cache/uv`
+- Permanent: `~/.platformio/penv/bin/uv`
+
+Python 3.13 venv lives at: `~/.platformio/penv/`
 
 ### Subsequent Runs
-On subsequent runs:
-- UV is already installed (skips installation)
-- Python 3.13 is already available (skips download)
-- Tests complete much faster (~10-30 seconds)
+UV and Python are already present — tests complete in seconds.
 
-## Platform-Specific Notes
+## Platform Notes
 
-### Windows
-- UV installs to: `%USERPROFILE%\.local\bin\uv.exe`
-- Python path will end with `.exe`
-- Paths use backslashes (`\`)
-
-### macOS/Linux
-- UV installs to: `~/.local/bin/uv`
-- Python path does not have `.exe` extension
-- Paths use forward slashes (`/`)
+| | Windows | macOS / Linux |
+|---|---------|---------------|
+| UV binary | `uv.exe` | `uv` |
+| Venv bin dir | `Scripts\` | `bin/` |
+| Python binary | `python.exe` | `python3` |
 
 ## Troubleshooting
 
-### Test Timeout
-If tests timeout, increase the timeout values in the test file:
-```javascript
-this.timeout(360000); // 6 minutes
+### UV Download Fails
+- Check internet connection and proxy/firewall settings
+- Manual install: https://docs.astral.sh/uv/getting-started/installation/
+
+### Python Not Found After Install
+```bash
+uv --version
+uv python install 3.13
+uv python find 3.13
 ```
 
-### UV Installation Fails
-- Check internet connection
-- Verify firewall/proxy settings
-- Try manual UV installation: https://docs.astral.sh/uv/getting-started/installation/
-
-### Python Not Found
-- Ensure UV installation completed successfully
-- Check UV version: `uv --version`
-- Try manual Python installation: `uv python install 3.13`
-- Verify Python: `uv python find 3.13`
-
-### Permission Errors
-On Unix systems, ensure `~/.local/bin/` is writable:
+### Permission Errors (macOS/Linux)
 ```bash
-mkdir -p ~/.local/bin
-chmod 755 ~/.local/bin
+chmod 755 ~/.platformio/penv/bin
 ```
 
 ## Cleanup
 
-To remove installed components:
-
 ```bash
-# Remove UV
-rm -rf ~/.local/bin/uv
+# Remove the entire pioarduino environment
+rm -rf ~/.platformio/penv
+rm -rf ~/.platformio/.cache
 
-# Remove UV-managed Python installations
-rm -rf ~/.local/share/uv/python
-
-# On Windows (PowerShell):
-# Remove-Item -Recurse -Force "$env:USERPROFILE\.local\bin\uv.exe"
-# Remove-Item -Recurse -Force "$env:USERPROFILE\.local\share\uv\python"
+# Windows (PowerShell)
+Remove-Item -Recurse -Force "$env:USERPROFILE\.platformio\penv"
+Remove-Item -Recurse -Force "$env:USERPROFILE\.platformio\.cache"
 ```
 
 ## CI/CD Integration
 
-For CI/CD pipelines, consider:
-- Caching `~/.local/` directory to speed up subsequent runs
-- Setting appropriate timeouts (10+ minutes for first run)
-- Using matrix testing for multiple platforms (Windows, macOS, Linux)
-
-Example GitHub Actions:
 ```yaml
-- name: Run Python Installation Tests
-  run: node --test test/installer/get-python.test.js
-  timeout-minutes: 15
-  
-- name: Cache UV and Python
-  uses: actions/cache@v3
+- name: Run Tests
+  run: npm test
+  timeout-minutes: 20
+
+- name: Cache pioarduino environment
+  uses: actions/cache@v4
   with:
-    path: ~/.local
-    key: ${{ runner.os }}-uv-python-${{ hashFiles('**/package.json') }}
+    path: ~/.platformio
+    key: ${{ runner.os }}-platformio-${{ hashFiles('**/package.json') }}
 ```
