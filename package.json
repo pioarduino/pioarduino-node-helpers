@@ -1,6 +1,6 @@
 {
   "name": "pioarduino-node-helpers",
-  "version": "12.6.0",
+  "version": "12.6.1",
   "description": "Collection of Node.JS helpers for PlatformIO fork pioarduino",
   "main": "dist/index.js",
   "engines": {
@@ -52,9 +52,9 @@
     "got": "^11.8.6",
     "jsonrpc-lite": "~2.1.1",
     "semver": "^7.6.3",
-    "tar": "~7.5.10",
+    "tar": "~7.5.15",
     "tcp-port-used": "~1.0.2",
-    "ws": "~8.18.0"
+    "ws": "~8.20.1"
   },
   "devDependencies": {
     "@types/node": "~20",
