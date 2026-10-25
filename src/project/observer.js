@@ -16,6 +16,7 @@ import path from 'path';
 
 export default class ProjectObserver {
   static WATCH_DIRS_UPDATE_DELAY = 10000; // 10 seconds
+  static LIB_DIRS_CHANGE_DELAY = 100;
 
   constructor(projectDir, options) {
     this.projectDir = projectDir;
@@ -33,6 +34,8 @@ export default class ProjectObserver {
       this.options.intelliSenseBackend,
     );
     this._updateDirWatchersTimeout = undefined;
+    this._libDirsChangeTimeout = undefined;
+    this._libDirsChangeSnapshot = undefined;
     this._selectedEnv = undefined;
     this._apiConfigChangedTimeout = undefined;
     this._rebuildInProgress = false;
@@ -50,6 +53,9 @@ export default class ProjectObserver {
     disposeSubscriptions(this.subscriptions);
     if (this._updateDirWatchersTimeout) {
       clearTimeout(this._updateDirWatchersTimeout);
+    }
+    if (this._libDirsChangeTimeout) {
+      clearTimeout(this._libDirsChangeTimeout);
     }
     if (this._indexer) {
       this._indexer.dispose();
@@ -168,13 +174,29 @@ export default class ProjectObserver {
   }
 
   onDidChangeLibDirs() {
+    if (this._libDirsChangeTimeout) {
+      clearTimeout(this._libDirsChangeTimeout);
+    } else {
+      // Keep the comparison baseline from the start of the burst so events
+      // arriving during a rebuild retain their existing change detection.
+      this._libDirsChangeSnapshot = this._libDirsSnapshotBeforeRebuild;
+    }
+    this._libDirsChangeTimeout = setTimeout(() => {
+      this._libDirsChangeTimeout = undefined;
+      const snapshot = this._libDirsChangeSnapshot;
+      this._libDirsChangeSnapshot = undefined;
+      this._processLibDirsChange(snapshot);
+    }, ProjectObserver.LIB_DIRS_CHANGE_DELAY);
+  }
+
+  _processLibDirsChange(snapshot) {
     // Ignore library directory changes that occur during a rebuild
     // to prevent the rebuild from triggering itself (issue #105)
     // Queue a follow-up rebuild only when tracked library files have changed
     if (this._rebuildInProgress) {
       if (
         !this._pendingRebuildAfterCurrent &&
-        this._libDirsChangedSinceBeforeRebuild()
+        this._libDirsChangedSinceBeforeRebuild(snapshot)
       ) {
         this._pendingRebuildAfterCurrent = true;
       }
@@ -182,7 +204,7 @@ export default class ProjectObserver {
     }
     // Suppress rebuild-originated notifications delivered after rebuild completion
     // if library directory contents have not changed since the post-rebuild snapshot
-    if (!this._libDirsChangedSinceBeforeRebuild()) {
+    if (!this._libDirsChangedSinceBeforeRebuild(snapshot)) {
       return;
     }
     this._captureLibDirsSnapshot();
@@ -239,8 +261,7 @@ export default class ProjectObserver {
     return snapshot;
   }
 
-  _libDirsChangedSinceBeforeRebuild() {
-    const before = this._libDirsSnapshotBeforeRebuild;
+  _libDirsChangedSinceBeforeRebuild(before = this._libDirsSnapshotBeforeRebuild) {
     const current = this._readLibDirsSnapshot();
     if (current.size !== before.size) {
       return true;

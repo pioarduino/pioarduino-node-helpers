@@ -161,7 +161,7 @@ try {
   };
 
   // Call onDidChangeLibDirs during rebuild
-  observer.onDidChangeLibDirs();
+  observer._processLibDirsChange(observer._libDirsSnapshotBeforeRebuild);
 
   if (!rebuildCalled) {
     console.log('✓ onDidChangeLibDirs does not trigger immediate rebuild during active rebuild');
@@ -184,7 +184,7 @@ try {
   rebuildCalled = false;
 
   // Call onDidChangeLibDirs when not in progress
-  observer.onDidChangeLibDirs();
+  observer._processLibDirsChange(observer._libDirsSnapshotBeforeRebuild);
 
   if (rebuildCalled) {
     console.log('✓ onDidChangeLibDirs triggers rebuild when not in progress');
@@ -373,7 +373,7 @@ try {
     observer._rebuildInProgress = true;
     observer._pendingRebuildAfterCurrent = false;
     observer._libDirsChangedSinceBeforeRebuild = () => false;
-    observer.onDidChangeLibDirs();
+    observer._processLibDirsChange(observer._libDirsSnapshotBeforeRebuild);
     if (observer._pendingRebuildAfterCurrent === true) {
       console.log('✗ Rebuild-originated event queued pending rebuild');
       process.exit(1);
@@ -390,7 +390,7 @@ try {
     observer._rebuildInProgress = true;
     observer._pendingRebuildAfterCurrent = false;
     observer._libDirsChangedSinceBeforeRebuild = () => true;
-    observer.onDidChangeLibDirs();
+    observer._processLibDirsChange(observer._libDirsSnapshotBeforeRebuild);
     if (observer._pendingRebuildAfterCurrent === true) {
       console.log('✓ User-originated event queues pending rebuild');
     } else {
@@ -412,7 +412,7 @@ try {
     observer.rebuildIndex = () => {
       postRebuildCalled = true;
     };
-    observer.onDidChangeLibDirs();
+    observer._processLibDirsChange(observer._libDirsSnapshotBeforeRebuild);
     if (!postRebuildCalled) {
       console.log('✓ Rebuild-originated event delivered after rebuild does not trigger rebuild');
     } else {
@@ -434,7 +434,7 @@ try {
     observer.rebuildIndex = () => {
       userEventRebuildCalled = true;
     };
-    observer.onDidChangeLibDirs();
+    observer._processLibDirsChange(observer._libDirsSnapshotBeforeRebuild);
     if (userEventRebuildCalled) {
       console.log('✓ User-originated event delivered after rebuild triggers rebuild');
     } else {
@@ -507,5 +507,47 @@ try {
 }
 
 console.log('\n============================================================');
-console.log('All project-related tests passed!');
-console.log('============================================================');
+const { ProjectObserver } = require('../dist/index.js').project;
+const debounceObserver = new ProjectObserver('/mock/project', {
+  ide: 'vscode',
+  intelliSenseBackend: { id: 'cpptools' },
+  settings: { autoRebuild: false },
+  api: {},
+});
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const snapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pio-observer-debounce-'));
+const rebuiltFile = path.join(snapshotDir, 'rebuilt.txt');
+fs.writeFileSync(rebuiltFile, 'before rebuild');
+debounceObserver._libDirs = [snapshotDir];
+debounceObserver._captureLibDirsSnapshot();
+fs.writeFileSync(rebuiltFile, 'rebuild output');
+debounceObserver._captureLibDirsSnapshot();
+let snapshotReadCount = 0;
+const readSnapshot = debounceObserver._readLibDirsSnapshot.bind(debounceObserver);
+debounceObserver._readLibDirsSnapshot = () => {
+  snapshotReadCount++;
+  return readSnapshot();
+};
+let debounceRebuildCalled = false;
+debounceObserver.rebuildIndex = () => {
+  debounceRebuildCalled = true;
+};
+// Ensure rapid watcher notifications share a single snapshot comparison.
+debounceObserver.onDidChangeLibDirs();
+debounceObserver.onDidChangeLibDirs();
+setTimeout(() => {
+  if (snapshotReadCount === 1 && !debounceRebuildCalled) {
+    console.log(
+      '✓ Rebuild notifications are coalesced and suppressed against the post-rebuild snapshot',
+    );
+    console.log('All project-related tests passed!');
+  } else {
+    console.log(`✗ Watcher event burst caused ${snapshotReadCount} snapshot reads`);
+    process.exit(1);
+  }
+  debounceObserver.dispose();
+  fs.rmSync(snapshotDir, { recursive: true, force: true });
+  console.log('============================================================');
+}, ProjectObserver.LIB_DIRS_CHANGE_DELAY + 10);
