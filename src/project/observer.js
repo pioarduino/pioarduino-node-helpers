@@ -204,14 +204,18 @@ export default class ProjectObserver {
 
   _libDirsMtimeChangedSinceBeforeRebuild() {
     for (const dir of this._libDirs) {
+      const beforeMtime = this._libDirsMtimeBeforeRebuild.get(dir);
+      if (beforeMtime === undefined) {
+        // Directory was not tracked before the rebuild
+        continue;
+      }
       try {
         const stats = require('fs').statSync(dir);
-        const beforeMtime = this._libDirsMtimeBeforeRebuild.get(dir);
-        if (beforeMtime !== undefined && stats.mtimeMs !== beforeMtime) {
+        if (stats.mtimeMs !== beforeMtime) {
           return true;
         }
       } catch (err) {
-        // If we can't stat, assume it changed
+        // A tracked directory can no longer be read: assume it changed
         return true;
       }
     }
