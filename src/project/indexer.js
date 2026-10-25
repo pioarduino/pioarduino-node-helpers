@@ -89,8 +89,8 @@ export default class ProjectIndexer {
     // Set the flag when rebuild work actually starts
     if (this.observer) {
       this.observer._rebuildInProgress = true;
-      // Capture lib dir mtimes before rebuild to distinguish user edits from rebuild writes
-      this.observer._captureLibDirsMtime();
+      // Capture file state before rebuilding so in-progress edits can be detected.
+      this.observer._captureLibDirsSnapshot();
     }
     if (this.options.api.logOutputChannel) {
       this.options.api.logOutputChannel.clear();

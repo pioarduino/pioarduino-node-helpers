@@ -37,7 +37,7 @@ export default class ProjectObserver {
     this._apiConfigChangedTimeout = undefined;
     this._rebuildInProgress = false;
     this._libDirs = [];
-    this._libDirsMtimeBeforeRebuild = new Map();
+    this._libDirsSnapshotBeforeRebuild = new Map();
     this._pendingRebuildAfterCurrent = false;
 
     if (this.getSetting('autoRebuild')) {
@@ -170,9 +170,9 @@ export default class ProjectObserver {
   onDidChangeLibDirs() {
     // Ignore library directory changes that occur during a rebuild
     // to prevent the rebuild from triggering itself (issue #105)
-    // Queue a follow-up rebuild only if genuine user edits arrive during rebuild
+    // Queue a follow-up rebuild only when tracked library files have changed
     if (this._rebuildInProgress) {
-      if (this._libDirsMtimeChangedSinceBeforeRebuild()) {
+      if (this._libDirsChangedSinceBeforeRebuild()) {
         this._pendingRebuildAfterCurrent = true;
       }
       return;
@@ -181,41 +181,63 @@ export default class ProjectObserver {
   }
 
   _triggerPendingRebuild() {
-    if (this._pendingRebuildAfterCurrent) {
-      this._pendingRebuildAfterCurrent = false;
-      // Check if lib dirs actually changed since before the rebuild
-      if (this._libDirsMtimeChangedSinceBeforeRebuild()) {
-        this.rebuildIndex({ delayed: true });
-      }
+    const libDirsChanged =
+      this._pendingRebuildAfterCurrent && this._libDirsChangedSinceBeforeRebuild();
+    this._pendingRebuildAfterCurrent = false;
+    // Refresh after every rebuild so later watcher notifications for rebuild
+    // output are compared against the resulting filesystem state.
+    this._captureLibDirsSnapshot();
+    if (libDirsChanged) {
+      this.rebuildIndex({ delayed: true });
     }
   }
 
-  _captureLibDirsMtime() {
-    this._libDirsMtimeBeforeRebuild.clear();
-    this._libDirs.forEach((dir) => {
-      try {
-        const stats = require('fs').statSync(dir);
-        this._libDirsMtimeBeforeRebuild.set(dir, stats.mtimeMs);
-      } catch (err) {
-        // If we can't stat, don't track it
-      }
-    });
+  _captureLibDirsSnapshot() {
+    this._libDirsSnapshotBeforeRebuild = this._readLibDirsSnapshot();
   }
 
-  _libDirsMtimeChangedSinceBeforeRebuild() {
-    for (const dir of this._libDirs) {
-      const beforeMtime = this._libDirsMtimeBeforeRebuild.get(dir);
-      if (beforeMtime === undefined) {
-        // Directory was not tracked before the rebuild
-        continue;
-      }
+  _readLibDirsSnapshot() {
+    const fs = require('fs');
+    const snapshot = new Map();
+    const addFiles = (dir) => {
+      let entries;
       try {
-        const stats = require('fs').statSync(dir);
-        if (stats.mtimeMs !== beforeMtime) {
-          return true;
-        }
+        entries = fs.readdirSync(dir, { withFileTypes: true });
       } catch (err) {
-        // A tracked directory can no longer be read: assume it changed
+        return;
+      }
+      entries.forEach((entry) => {
+        const filePath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          addFiles(filePath);
+        } else if (entry.isFile()) {
+          try {
+            const stats = fs.lstatSync(filePath);
+            snapshot.set(
+              path.resolve(filePath),
+              `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`,
+            );
+          } catch (err) {
+            // Ignore files removed while taking the snapshot
+          }
+        }
+        // Do not follow symlinks: dependency links can be rewritten by a
+        // rebuild, and following them can traverse outside the watched tree.
+      });
+    };
+
+    this._libDirs.forEach(addFiles);
+    return snapshot;
+  }
+
+  _libDirsChangedSinceBeforeRebuild() {
+    const before = this._libDirsSnapshotBeforeRebuild;
+    const current = this._readLibDirsSnapshot();
+    if (current.size !== before.size) {
+      return true;
+    }
+    for (const [filePath, signature] of before) {
+      if (current.get(filePath) !== signature) {
         return true;
       }
     }

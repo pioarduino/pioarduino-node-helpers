@@ -151,7 +151,7 @@ try {
 
   // Set rebuild in progress
   observer._rebuildInProgress = true;
-  observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
+  observer._libDirsChangedSinceBeforeRebuild = () => true;
 
   // Mock rebuildIndex to track if it's called
   let rebuildCalled = false;
@@ -240,6 +240,53 @@ try {
     process.exit(1);
   }
 
+  // Verify the file snapshot sees edits in the root and nested directories,
+  // while ignoring directory and symlink metadata changes.
+  console.log('\nTest 5a: Library file snapshots detect content changes');
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const snapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pio-observer-'));
+  const nestedDir = path.join(snapshotDir, 'nested');
+  fs.mkdirSync(nestedDir);
+  const rootFile = path.join(snapshotDir, 'root.txt');
+  const nestedFile = path.join(nestedDir, 'nested.txt');
+  fs.writeFileSync(rootFile, 'before');
+  fs.writeFileSync(nestedFile, 'before');
+  observer._libDirs = [snapshotDir];
+  observer._captureLibDirsSnapshot();
+  if (!observer._libDirsChangedSinceBeforeRebuild()) {
+    console.log('✓ Unchanged library files match the captured snapshot');
+  } else {
+    console.log('✗ Unchanged library files differ from the captured snapshot');
+    process.exit(1);
+  }
+  fs.writeFileSync(rootFile, 'root changed');
+  if (observer._libDirsChangedSinceBeforeRebuild()) {
+    console.log('✓ Edits to existing root files are detected');
+  } else {
+    console.log('✗ Edits to existing root files were not detected');
+    process.exit(1);
+  }
+  observer._captureLibDirsSnapshot();
+  fs.writeFileSync(nestedFile, 'nested changed');
+  if (observer._libDirsChangedSinceBeforeRebuild()) {
+    console.log('✓ Edits to nested files are detected');
+  } else {
+    console.log('✗ Edits to nested files were not detected');
+    process.exit(1);
+  }
+  observer._captureLibDirsSnapshot();
+  fs.symlinkSync(rootFile, path.join(snapshotDir, 'dependency-link'));
+  if (!observer._libDirsChangedSinceBeforeRebuild()) {
+    console.log('✓ Symlink updates are excluded from the file snapshot');
+  } else {
+    console.log('✗ Symlink updates changed the file snapshot');
+    process.exit(1);
+  }
+  fs.rmSync(snapshotDir, { recursive: true, force: true });
+  observer._libDirs = [];
+
   // Test that rebuild() does NOT set the flag (flag is set in _rebuildWithProgress)
   observer._rebuildInProgress = false;
   indexer._inProgress = false;
@@ -275,7 +322,7 @@ try {
   // Test that pending rebuild is triggered after rebuild completes
   observer._rebuildInProgress = true;
   observer._pendingRebuildAfterCurrent = true;
-  observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
+  observer._libDirsChangedSinceBeforeRebuild = () => true;
   // Stub rebuildIndex to track if it's called
   let rebuildIndexCalled = false;
   let rebuildIndexOptions;
@@ -308,13 +355,13 @@ try {
   try {
     observer._rebuildInProgress = true;
     observer._pendingRebuildAfterCurrent = false;
-    observer._libDirsMtimeChangedSinceBeforeRebuild = () => false;
+    observer._libDirsChangedSinceBeforeRebuild = () => false;
     observer.onDidChangeLibDirs();
     if (observer._pendingRebuildAfterCurrent === true) {
       console.log('✗ Rebuild-originated event queued pending rebuild');
       process.exit(1);
     }
-    console.log('✓ Rebuild-originated event does not queue pending rebuild when mtime unchanged');
+    console.log('✓ Rebuild-originated event does not queue pending rebuild when files are unchanged');
   } catch (err) {
     console.log('✗ Test 5b failed:', err.message);
     process.exit(1);
@@ -325,7 +372,7 @@ try {
   try {
     observer._rebuildInProgress = true;
     observer._pendingRebuildAfterCurrent = false;
-    observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
+    observer._libDirsChangedSinceBeforeRebuild = () => true;
     observer.onDidChangeLibDirs();
     if (observer._pendingRebuildAfterCurrent === true) {
       console.log('✓ User-originated event queues pending rebuild');
