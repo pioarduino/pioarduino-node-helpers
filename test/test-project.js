@@ -277,12 +277,29 @@ try {
     process.exit(1);
   }
   observer._captureLibDirsSnapshot();
-  fs.symlinkSync(rootFile, path.join(snapshotDir, 'dependency-link'));
-  if (!observer._libDirsChangedSinceBeforeRebuild()) {
-    console.log('✓ Symlink updates are excluded from the file snapshot');
-  } else {
-    console.log('✗ Symlink updates changed the file snapshot');
-    process.exit(1);
+  let symlinkCreated = false;
+  try {
+    fs.symlinkSync(rootFile, path.join(snapshotDir, 'dependency-link'));
+    symlinkCreated = true;
+  } catch (err) {
+    if (
+      process.platform === 'win32' &&
+      (err.code === 'EPERM' || err.code === 'EACCES')
+    ) {
+      console.log(
+        '↷ Skipping symlink assertion: symlink creation requires elevated privileges on Windows',
+      );
+    } else {
+      throw err;
+    }
+  }
+  if (symlinkCreated) {
+    if (!observer._libDirsChangedSinceBeforeRebuild()) {
+      console.log('✓ Symlink updates are excluded from the file snapshot');
+    } else {
+      console.log('✗ Symlink updates changed the file snapshot');
+      process.exit(1);
+    }
   }
   fs.rmSync(snapshotDir, { recursive: true, force: true });
   observer._libDirs = [];
@@ -382,6 +399,50 @@ try {
     }
   } catch (err) {
     console.log('✗ Test 5c failed:', err.message);
+    process.exit(1);
+  }
+
+  // Test that rebuild-originated events delivered after rebuild do NOT trigger rebuild
+  console.log('\nTest 5d: Rebuild-originated events delivered after rebuild do not trigger rebuild');
+  try {
+    observer._rebuildInProgress = false;
+    observer._pendingRebuildAfterCurrent = false;
+    observer._libDirsChangedSinceBeforeRebuild = () => false;
+    let postRebuildCalled = false;
+    observer.rebuildIndex = () => {
+      postRebuildCalled = true;
+    };
+    observer.onDidChangeLibDirs();
+    if (!postRebuildCalled) {
+      console.log('✓ Rebuild-originated event delivered after rebuild does not trigger rebuild');
+    } else {
+      console.log('✗ Rebuild-originated event delivered after rebuild triggered rebuild');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.log('✗ Test 5d failed:', err.message);
+    process.exit(1);
+  }
+
+  // Test that user-originated events delivered after rebuild DO trigger rebuild
+  console.log('\nTest 5e: User-originated events delivered after rebuild trigger rebuild');
+  try {
+    observer._rebuildInProgress = false;
+    observer._pendingRebuildAfterCurrent = false;
+    observer._libDirsChangedSinceBeforeRebuild = () => true;
+    let userEventRebuildCalled = false;
+    observer.rebuildIndex = () => {
+      userEventRebuildCalled = true;
+    };
+    observer.onDidChangeLibDirs();
+    if (userEventRebuildCalled) {
+      console.log('✓ User-originated event delivered after rebuild triggers rebuild');
+    } else {
+      console.log('✗ User-originated event delivered after rebuild did not trigger rebuild');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.log('✗ Test 5e failed:', err.message);
     process.exit(1);
   }
 } catch (err) {

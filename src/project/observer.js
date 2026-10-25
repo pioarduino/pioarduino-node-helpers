@@ -172,11 +172,20 @@ export default class ProjectObserver {
     // to prevent the rebuild from triggering itself (issue #105)
     // Queue a follow-up rebuild only when tracked library files have changed
     if (this._rebuildInProgress) {
-      if (this._libDirsChangedSinceBeforeRebuild()) {
+      if (
+        !this._pendingRebuildAfterCurrent &&
+        this._libDirsChangedSinceBeforeRebuild()
+      ) {
         this._pendingRebuildAfterCurrent = true;
       }
       return;
     }
+    // Suppress rebuild-originated notifications delivered after rebuild completion
+    // if library directory contents have not changed since the post-rebuild snapshot
+    if (!this._libDirsChangedSinceBeforeRebuild()) {
+      return;
+    }
+    this._captureLibDirsSnapshot();
     this.rebuildIndex({ delayed: true });
   }
 
@@ -271,6 +280,7 @@ export default class ProjectObserver {
     disposeSubscriptions(this.dirWatchSubscriptions);
     try {
       this._libDirs = await this.fetchLibDirs();
+      this._captureLibDirsSnapshot();
       this._libDirs.forEach((dir) => {
         const watcher = this.options.api.createDirSystemWatcher(dir);
         this.dirWatchSubscriptions.push(
