@@ -37,6 +37,7 @@ export default class ProjectObserver {
     this._apiConfigChangedTimeout = undefined;
     this._rebuildInProgress = false;
     this._libDirs = [];
+    this._pendingRebuildAfterCurrent = false;
 
     if (this.getSetting('autoRebuild')) {
       this.setupFSWatchers();
@@ -168,7 +169,9 @@ export default class ProjectObserver {
   onDidChangeLibDirs() {
     // Ignore library directory changes that occur during a rebuild
     // to prevent the rebuild from triggering itself (issue #105)
+    // However, queue a follow-up rebuild if user edits arrive during rebuild
     if (this._rebuildInProgress) {
+      this._pendingRebuildAfterCurrent = true;
       return;
     }
     this.rebuildIndex({ delayed: true });

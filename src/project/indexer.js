@@ -152,6 +152,11 @@ export default class ProjectIndexer {
       // Reset the rebuild-in-progress flag in the observer
       if (this.observer) {
         this.observer._rebuildInProgress = false;
+        // If there were pending changes during the rebuild, queue a follow-up rebuild
+        if (this.observer._pendingRebuildAfterCurrent) {
+          this.observer._pendingRebuildAfterCurrent = false;
+          this.observer.rebuildIndex({ delayed: true });
+        }
       }
     }
   }

@@ -49,12 +49,20 @@ export default class ProjectPool {
     // will install watchers if project-specific autoRebuild is now enabled
     this._observers.forEach((observer) => {
       const autoRebuild = observer.getSetting('autoRebuild');
-      const hasWatchers = observer.dirWatchSubscriptions.length > 0;
+      const hasDirWatchers = observer.dirWatchSubscriptions.length > 0;
+      const hasConfigWatcher = observer.subscriptions.length > 0;
+      const hasWatchers = hasDirWatchers || hasConfigWatcher;
       if (autoRebuild && !hasWatchers) {
         observer.setupFSWatchers();
       } else if (!autoRebuild && hasWatchers) {
-        observer.disposeSubscriptions();
+        disposeSubscriptions(observer.subscriptions);
+        observer.subscriptions = [];
+        disposeSubscriptions(observer.dirWatchSubscriptions);
         observer.dirWatchSubscriptions = [];
+        if (observer._updateDirWatchersTimeout) {
+          clearTimeout(observer._updateDirWatchersTimeout);
+          observer._updateDirWatchersTimeout = undefined;
+        }
       }
     });
   }
