@@ -172,7 +172,9 @@ export default class ProjectObserver {
     // to prevent the rebuild from triggering itself (issue #105)
     // Queue a follow-up rebuild only if genuine user edits arrive during rebuild
     if (this._rebuildInProgress) {
-      this._pendingRebuildAfterCurrent = true;
+      if (this._libDirsMtimeChangedSinceBeforeRebuild()) {
+        this._pendingRebuildAfterCurrent = true;
+      }
       return;
     }
     this.rebuildIndex({ delayed: true });
@@ -242,7 +244,8 @@ export default class ProjectObserver {
   async updateDirWatchers() {
     disposeSubscriptions(this.dirWatchSubscriptions);
     try {
-      (await this.fetchLibDirs()).forEach((dir) => {
+      this._libDirs = await this.fetchLibDirs();
+      this._libDirs.forEach((dir) => {
         const watcher = this.options.api.createDirSystemWatcher(dir);
         this.dirWatchSubscriptions.push(
           watcher,

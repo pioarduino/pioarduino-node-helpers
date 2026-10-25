@@ -151,6 +151,7 @@ try {
 
   // Set rebuild in progress
   observer._rebuildInProgress = true;
+  observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
 
   // Mock rebuildIndex to track if it's called
   let rebuildCalled = false;
@@ -274,6 +275,7 @@ try {
   // Test that pending rebuild is triggered after rebuild completes
   observer._rebuildInProgress = true;
   observer._pendingRebuildAfterCurrent = true;
+  observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
   // Stub rebuildIndex to track if it's called
   let rebuildIndexCalled = false;
   const originalRebuildIndex = observer.rebuildIndex.bind(observer);
@@ -304,10 +306,7 @@ try {
   try {
     observer._rebuildInProgress = true;
     observer._pendingRebuildAfterCurrent = false;
-    // Simulate capturing mtimes before rebuild
-    observer._libDirs = ['/mock/lib'];
-    observer._libDirsMtimeBeforeRebuild.set('/mock/lib', 1000);
-    // Simulate rebuild-originated event (mtime unchanged)
+    observer._libDirsMtimeChangedSinceBeforeRebuild = () => false;
     observer.onDidChangeLibDirs();
     if (observer._pendingRebuildAfterCurrent === true) {
       console.log('✗ Rebuild-originated event queued pending rebuild');
@@ -324,10 +323,7 @@ try {
   try {
     observer._rebuildInProgress = true;
     observer._pendingRebuildAfterCurrent = false;
-    observer._libDirs = ['/mock/lib'];
-    observer._libDirsMtimeBeforeRebuild.set('/mock/lib', 1000);
-    // Simulate mtime change (user edit)
-    observer._libDirsMtimeBeforeRebuild.set('/mock/lib', 2000);
+    observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
     observer.onDidChangeLibDirs();
     if (observer._pendingRebuildAfterCurrent === true) {
       console.log('✓ User-originated event queues pending rebuild');
