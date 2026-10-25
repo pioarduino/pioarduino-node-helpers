@@ -278,9 +278,11 @@ try {
   observer._libDirsMtimeChangedSinceBeforeRebuild = () => true;
   // Stub rebuildIndex to track if it's called
   let rebuildIndexCalled = false;
+  let rebuildIndexOptions;
   const originalRebuildIndex = observer.rebuildIndex.bind(observer);
   observer.rebuildIndex = (options) => {
     rebuildIndexCalled = true;
+    rebuildIndexOptions = options;
     if (options && options.delayed === true) {
       console.log('✓ rebuildIndex called with { delayed: true }');
     }
@@ -288,10 +290,10 @@ try {
   // Simulate rebuild completion by calling _triggerPendingRebuild
   observer._rebuildInProgress = false;
   observer._triggerPendingRebuild();
-  if (rebuildIndexCalled) {
+  if (rebuildIndexCalled && rebuildIndexOptions && rebuildIndexOptions.delayed === true) {
     console.log('✓ Pending rebuild triggers rebuildIndex with { delayed: true }');
   } else {
-    console.log('✗ Pending rebuild did not trigger rebuildIndex');
+    console.log('✗ Pending rebuild did not trigger rebuildIndex with { delayed: true }');
     process.exit(1);
   }
   if (observer._pendingRebuildAfterCurrent === false) {
