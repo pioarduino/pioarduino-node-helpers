@@ -187,8 +187,8 @@ try {
   process.exit(1);
 }
 
-// Test 5: ProjectIndexer has observer reference and can reset flag
-console.log('\nTest 5: ProjectIndexer has observer reference');
+// Test 5: ProjectIndexer sets flag in rebuild() and clears on flood limit
+console.log('\nTest 5: ProjectIndexer sets flag in rebuild() and clears on flood limit');
 try {
   const pkg = require('../dist/index.js');
   const { ProjectIndexer, ProjectObserver } = pkg.project;
@@ -204,7 +204,6 @@ try {
   };
 
   const observer = new ProjectObserver('/mock/project', mockObserverOptions);
-  observer._rebuildInProgress = true;
 
   const mockIndexerOptions = {
     ide: 'vscode',
@@ -231,23 +230,93 @@ try {
     process.exit(1);
   }
 
-  // Manually test the flag reset logic
-  indexer._inProgress = true;
-  observer._rebuildInProgress = true;
-  // Simulate the finally block logic
+  // Test that rebuild() sets the flag (call it directly, don't await)
+  observer._rebuildInProgress = false;
   indexer._inProgress = false;
-  if (indexer.observer) {
-    indexer.observer._rebuildInProgress = false;
-  }
+  // Mock withIndexRebuildingProgress to avoid actual rebuild
+  const originalWithProgress = mockIndexerOptions.api.withIndexRebuildingProgress;
+  mockIndexerOptions.api.withIndexRebuildingProgress = (task) => {
+    // Check the flag is set synchronously
+    if (observer._rebuildInProgress === true) {
+      console.log('✓ rebuild() sets _rebuildInProgress flag');
+    } else {
+      console.log('✗ rebuild() did not set _rebuildInProgress flag');
+      process.exit(1);
+    }
+    return Promise.resolve();
+  };
+  indexer.rebuild();
+  // Restore original
+  mockIndexerOptions.api.withIndexRebuildingProgress = originalWithProgress;
 
+  // Test that flood limit clears the flag
+  observer._rebuildInProgress = true;
+  indexer._floodAttempts = ProjectIndexer.FLOOD_MAX_ATTEMPTS;
+  indexer.requestRebuild();
   if (observer._rebuildInProgress === false) {
-    console.log('✓ _rebuildInProgress flag can be reset via ProjectIndexer');
+    console.log('✓ Flood limit clears _rebuildInProgress flag');
   } else {
-    console.log('✗ _rebuildInProgress flag cannot be reset');
+    console.log('✗ Flood limit did not clear _rebuildInProgress flag');
     process.exit(1);
   }
 } catch (err) {
   console.log('✗ Test 5 failed:', err.message);
+  process.exit(1);
+}
+
+// Test 6: setProjectSettingsCallback reconciles watcher state
+console.log('\nTest 6: setProjectSettingsCallback reconciles watcher state');
+try {
+  const pkg = require('../dist/index.js');
+  const { ProjectPool, ProjectObserver } = pkg.project;
+
+  const mockOptions = {
+    ide: 'vscode',
+    intelliSenseBackend: { id: 'cpptools' },
+    settings: { autoRebuild: false },
+    api: {
+      createFileSystemWatcher: () => ({ onDidCreate: () => {}, onDidChange: () => {} }),
+      createDirSystemWatcher: () => ({ onDidCreate: () => {}, onDidChange: () => {}, onDidDelete: () => {} }),
+    },
+  };
+
+  const pool = new ProjectPool(mockOptions);
+  const observer1 = pool.getObserver('/project1');
+  const observer2 = pool.getObserver('/project2');
+
+  // Initially, autoRebuild is false, so no subscriptions should be set up
+  if (observer1.subscriptions.length === 0) {
+    console.log('✓ Observer 1 has no subscriptions initially');
+  } else {
+    console.log('✗ Observer 1 has subscriptions initially');
+    process.exit(1);
+  }
+
+  // Set callback that enables autoRebuild for project1
+  pool.setProjectSettingsCallback((projectDir) => {
+    if (projectDir === '/project1') {
+      return { autoRebuild: true };
+    }
+    return { autoRebuild: false };
+  });
+
+  // Observer 1 should now have subscriptions (setupFSWatchers called)
+  if (observer1.subscriptions.length > 0) {
+    console.log('✓ Observer 1 now has subscriptions after callback enables autoRebuild');
+  } else {
+    console.log('✗ Observer 1 does not have subscriptions after callback enables autoRebuild');
+    process.exit(1);
+  }
+
+  // Observer 2 should still have no subscriptions
+  if (observer2.subscriptions.length === 0) {
+    console.log('✓ Observer 2 still has no subscriptions');
+  } else {
+    console.log('✗ Observer 2 has subscriptions');
+    process.exit(1);
+  }
+} catch (err) {
+  console.log('✗ Test 6 failed:', err.message);
   process.exit(1);
 }
 

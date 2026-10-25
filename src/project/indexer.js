@@ -59,6 +59,10 @@ export default class ProjectIndexer {
           } minutes.`;
         this.options.api.onDidNotifyError(msg, new Error(msg));
       }
+      // Clear the flag when flood limit rejects the request
+      if (this.observer) {
+        this.observer._rebuildInProgress = false;
+      }
       return;
     }
 
@@ -71,6 +75,10 @@ export default class ProjectIndexer {
   rebuild() {
     if (this._inProgress) {
       return;
+    }
+    // Set the flag when rebuild work actually starts
+    if (this.observer) {
+      this.observer._rebuildInProgress = true;
     }
     return this.options.api.withIndexRebuildingProgress(
       this._rebuildWithProgress.bind(this),

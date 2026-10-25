@@ -95,7 +95,6 @@ export default class ProjectObserver {
     if (!this._indexer) {
       this._indexer = new ProjectIndexer(this.projectDir, this.options, this);
     }
-    this._rebuildInProgress = true;
     return delayed ? this._indexer.requestRebuild() : this._indexer.rebuild();
   }
 

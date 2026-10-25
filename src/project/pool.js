@@ -44,6 +44,19 @@ export default class ProjectPool {
   // This allows the extension to provide per-project configuration
   setProjectSettingsCallback(callback) {
     this.options.getProjectSettings = callback;
+    // Reconcile watcher state for all existing observers
+    // This ensures observers created while global autoRebuild was false
+    // will install watchers if project-specific autoRebuild is now enabled
+    this._observers.forEach((observer) => {
+      const autoRebuild = observer.getSetting('autoRebuild');
+      const hasWatchers = observer.dirWatchSubscriptions.length > 0;
+      if (autoRebuild && !hasWatchers) {
+        observer.setupFSWatchers();
+      } else if (!autoRebuild && hasWatchers) {
+        observer.disposeSubscriptions();
+        observer.dirWatchSubscriptions = [];
+      }
+    });
   }
 
   async switch(projectDir) {
