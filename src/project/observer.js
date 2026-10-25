@@ -217,7 +217,12 @@ export default class ProjectObserver {
     this._pendingRebuildAfterCurrent = false;
     // Refresh after every rebuild so later watcher notifications for rebuild
     // output are compared against the resulting filesystem state.
-    this._captureLibDirsSnapshot();
+    const snapshot = this._captureLibDirsSnapshot();
+    // A watcher event received during the rebuild may still be waiting for its
+    // debounce timer. Compare it against the post-rebuild state when it lands.
+    if (this._libDirsChangeTimeout) {
+      this._libDirsChangeSnapshot = snapshot;
+    }
     if (libDirsChanged) {
       this.rebuildIndex({ delayed: true });
     }
@@ -225,6 +230,7 @@ export default class ProjectObserver {
 
   _captureLibDirsSnapshot() {
     this._libDirsSnapshotBeforeRebuild = this._readLibDirsSnapshot();
+    return this._libDirsSnapshotBeforeRebuild;
   }
 
   _readLibDirsSnapshot() {

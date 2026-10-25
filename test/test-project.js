@@ -522,8 +522,6 @@ const rebuiltFile = path.join(snapshotDir, 'rebuilt.txt');
 fs.writeFileSync(rebuiltFile, 'before rebuild');
 debounceObserver._libDirs = [snapshotDir];
 debounceObserver._captureLibDirsSnapshot();
-fs.writeFileSync(rebuiltFile, 'rebuild output');
-debounceObserver._captureLibDirsSnapshot();
 let snapshotReadCount = 0;
 const readSnapshot = debounceObserver._readLibDirsSnapshot.bind(debounceObserver);
 debounceObserver._readLibDirsSnapshot = () => {
@@ -535,8 +533,13 @@ debounceObserver.rebuildIndex = () => {
   debounceRebuildCalled = true;
 };
 // Ensure rapid watcher notifications share a single snapshot comparison.
+debounceObserver._rebuildInProgress = true;
 debounceObserver.onDidChangeLibDirs();
 debounceObserver.onDidChangeLibDirs();
+fs.writeFileSync(rebuiltFile, 'rebuild output');
+debounceObserver._rebuildInProgress = false;
+debounceObserver._triggerPendingRebuild();
+snapshotReadCount = 0;
 setTimeout(() => {
   if (snapshotReadCount === 1 && !debounceRebuildCalled) {
     console.log(
