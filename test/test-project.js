@@ -298,6 +298,47 @@ try {
     console.log('✗ Pending rebuild flag was not cleared');
     process.exit(1);
   }
+
+  // Test that rebuild-originated events do NOT queue follow-up rebuild
+  console.log('\nTest 5b: Rebuild-originated events do not queue follow-up rebuild');
+  try {
+    observer._rebuildInProgress = true;
+    observer._pendingRebuildAfterCurrent = false;
+    // Simulate capturing mtimes before rebuild
+    observer._libDirs = ['/mock/lib'];
+    observer._libDirsMtimeBeforeRebuild.set('/mock/lib', 1000);
+    // Simulate rebuild-originated event (mtime unchanged)
+    observer.onDidChangeLibDirs();
+    if (observer._pendingRebuildAfterCurrent === true) {
+      console.log('✗ Rebuild-originated event queued pending rebuild');
+      process.exit(1);
+    }
+    console.log('✓ Rebuild-originated event does not queue pending rebuild when mtime unchanged');
+  } catch (err) {
+    console.log('✗ Test 5b failed:', err.message);
+    process.exit(1);
+  }
+
+  // Test that user-originated events DO queue follow-up rebuild
+  console.log('\nTest 5c: User-originated events queue follow-up rebuild');
+  try {
+    observer._rebuildInProgress = true;
+    observer._pendingRebuildAfterCurrent = false;
+    observer._libDirs = ['/mock/lib'];
+    observer._libDirsMtimeBeforeRebuild.set('/mock/lib', 1000);
+    // Simulate mtime change (user edit)
+    observer._libDirsMtimeBeforeRebuild.set('/mock/lib', 2000);
+    observer.onDidChangeLibDirs();
+    if (observer._pendingRebuildAfterCurrent === true) {
+      console.log('✓ User-originated event queues pending rebuild');
+    } else {
+      console.log('✗ User-originated event did not queue pending rebuild');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.log('✗ Test 5c failed:', err.message);
+    process.exit(1);
+  }
 } catch (err) {
   console.log('✗ Test 5 failed:', err.message);
   process.exit(1);

@@ -37,6 +37,7 @@ export default class ProjectObserver {
     this._apiConfigChangedTimeout = undefined;
     this._rebuildInProgress = false;
     this._libDirs = [];
+    this._libDirsMtimeBeforeRebuild = new Map();
     this._pendingRebuildAfterCurrent = false;
 
     if (this.getSetting('autoRebuild')) {
@@ -169,7 +170,7 @@ export default class ProjectObserver {
   onDidChangeLibDirs() {
     // Ignore library directory changes that occur during a rebuild
     // to prevent the rebuild from triggering itself (issue #105)
-    // However, queue a follow-up rebuild if user edits arrive during rebuild
+    // Queue a follow-up rebuild only if genuine user edits arrive during rebuild
     if (this._rebuildInProgress) {
       this._pendingRebuildAfterCurrent = true;
       return;
@@ -180,8 +181,39 @@ export default class ProjectObserver {
   _triggerPendingRebuild() {
     if (this._pendingRebuildAfterCurrent) {
       this._pendingRebuildAfterCurrent = false;
-      this.rebuildIndex({ delayed: true });
+      // Check if lib dirs actually changed since before the rebuild
+      if (this._libDirsMtimeChangedSinceBeforeRebuild()) {
+        this.rebuildIndex({ delayed: true });
+      }
     }
+  }
+
+  _captureLibDirsMtime() {
+    this._libDirsMtimeBeforeRebuild.clear();
+    this._libDirs.forEach((dir) => {
+      try {
+        const stats = require('fs').statSync(dir);
+        this._libDirsMtimeBeforeRebuild.set(dir, stats.mtimeMs);
+      } catch (err) {
+        // If we can't stat, don't track it
+      }
+    });
+  }
+
+  _libDirsMtimeChangedSinceBeforeRebuild() {
+    for (const dir of this._libDirs) {
+      try {
+        const stats = require('fs').statSync(dir);
+        const beforeMtime = this._libDirsMtimeBeforeRebuild.get(dir);
+        if (beforeMtime !== undefined && stats.mtimeMs !== beforeMtime) {
+          return true;
+        }
+      } catch (err) {
+        // If we can't stat, assume it changed
+        return true;
+      }
+    }
+    return false;
   }
 
   setupFSWatchers() {
