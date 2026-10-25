@@ -208,8 +208,17 @@ try {
     intelliSenseBackend: { id: 'cpptools' },
     settings: { autoRebuild: false },
     api: {
-      createFileSystemWatcher: () => ({ onDidCreate: () => {}, onDidChange: () => {} }),
-      createDirSystemWatcher: () => ({ onDidCreate: () => {}, onDidChange: () => {}, onDidDelete: () => {} }),
+      createFileSystemWatcher: () => ({
+        dispose() {},
+        onDidCreate: () => ({ dispose() {} }),
+        onDidChange: () => ({ dispose() {} }),
+      }),
+      createDirSystemWatcher: () => ({
+        dispose() {},
+        onDidCreate: () => ({ dispose() {} }),
+        onDidChange: () => ({ dispose() {} }),
+        onDidDelete: () => ({ dispose() {} }),
+      }),
     },
   };
 
