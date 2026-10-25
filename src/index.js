@@ -17,6 +17,8 @@ import { createVenvWithUv, ensurePipInPenv } from './installer/get-python';
 import BaseStage from './installer/stages/base';
 import ProjectConfig from './project/config';
 import ProjectPool from './project/pool';
+import ProjectObserver from './project/observer';
+import ProjectIndexer from './project/indexer';
 import pioarduinoCoreStage from './installer/stages/pioarduino-core';
 
 const installer = {
@@ -29,6 +31,8 @@ const installer = {
 const project = {
   ProjectConfig,
   ProjectPool,
+  ProjectObserver,
+  ProjectIndexer,
   ProjectTasks,
   TaskItem,
 };
