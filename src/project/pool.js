@@ -40,6 +40,12 @@ export default class ProjectPool {
     return observer;
   }
 
+  // Optional callback to get project-specific settings
+  // This allows the extension to provide per-project configuration
+  setProjectSettingsCallback(callback) {
+    this.options.getProjectSettings = callback;
+  }
+
   async switch(projectDir) {
     this._activeProjectDir = projectDir;
     console.info('Switching project to', projectDir);

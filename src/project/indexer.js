@@ -141,6 +141,10 @@ export default class ProjectIndexer {
       }
     } finally {
       this._inProgress = false;
+      // Reset the rebuild-in-progress flag in the observer
+      if (this.observer) {
+        this.observer._rebuildInProgress = false;
+      }
     }
   }
 }

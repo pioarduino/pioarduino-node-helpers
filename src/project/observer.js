@@ -35,6 +35,8 @@ export default class ProjectObserver {
     this._updateDirWatchersTimeout = undefined;
     this._selectedEnv = undefined;
     this._apiConfigChangedTimeout = undefined;
+    this._rebuildInProgress = false;
+    this._libDirs = [];
 
     if (this.getSetting('autoRebuild')) {
       this.setupFSWatchers();
@@ -63,6 +65,14 @@ export default class ProjectObserver {
   }
 
   getSetting(name) {
+    // First check if project-specific settings are provided
+    if (this.options.getProjectSettings) {
+      const projectSettings = this.options.getProjectSettings(this.projectDir);
+      if (projectSettings && name in projectSettings) {
+        return projectSettings[name];
+      }
+    }
+    // Fall back to global settings
     return (this.options.settings || {})[name];
   }
 
@@ -85,6 +95,7 @@ export default class ProjectObserver {
     if (!this._indexer) {
       this._indexer = new ProjectIndexer(this.projectDir, this.options, this);
     }
+    this._rebuildInProgress = true;
     return delayed ? this._indexer.requestRebuild() : this._indexer.rebuild();
   }
 
@@ -156,6 +167,11 @@ export default class ProjectObserver {
   }
 
   onDidChangeLibDirs() {
+    // Ignore library directory changes that occur during a rebuild
+    // to prevent the rebuild from triggering itself (issue #105)
+    if (this._rebuildInProgress) {
+      return;
+    }
     this.rebuildIndex({ delayed: true });
   }
 
