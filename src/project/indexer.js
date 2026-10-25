@@ -76,10 +76,6 @@ export default class ProjectIndexer {
     if (this._inProgress) {
       return;
     }
-    // Set the flag when rebuild work actually starts
-    if (this.observer) {
-      this.observer._rebuildInProgress = true;
-    }
     return this.options.api.withIndexRebuildingProgress(
       this._rebuildWithProgress.bind(this),
     );
@@ -90,6 +86,10 @@ export default class ProjectIndexer {
       withProgress = () => {};
     }
     this._inProgress = true;
+    // Set the flag when rebuild work actually starts
+    if (this.observer) {
+      this.observer._rebuildInProgress = true;
+    }
     if (this.options.api.logOutputChannel) {
       this.options.api.logOutputChannel.clear();
     }
@@ -152,11 +152,8 @@ export default class ProjectIndexer {
       // Reset the rebuild-in-progress flag in the observer
       if (this.observer) {
         this.observer._rebuildInProgress = false;
-        // If there were pending changes during the rebuild, queue a follow-up rebuild
-        if (this.observer._pendingRebuildAfterCurrent) {
-          this.observer._pendingRebuildAfterCurrent = false;
-          this.observer.rebuildIndex({ delayed: true });
-        }
+        // Trigger pending rebuild if user changes arrived during the rebuild
+        this.observer._triggerPendingRebuild();
       }
     }
   }

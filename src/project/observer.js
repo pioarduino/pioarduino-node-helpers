@@ -177,6 +177,13 @@ export default class ProjectObserver {
     this.rebuildIndex({ delayed: true });
   }
 
+  _triggerPendingRebuild() {
+    if (this._pendingRebuildAfterCurrent) {
+      this._pendingRebuildAfterCurrent = false;
+      this.rebuildIndex({ delayed: true });
+    }
+  }
+
   setupFSWatchers() {
     const watcher = this.options.api.createFileSystemWatcher(
       path.join(this.projectDir, 'platformio.ini'),

@@ -239,17 +239,19 @@ try {
     process.exit(1);
   }
 
-  // Test that rebuild() sets the flag (call it directly, don't await)
+  // Test that rebuild() does NOT set the flag (flag is set in _rebuildWithProgress)
   observer._rebuildInProgress = false;
   indexer._inProgress = false;
   // Mock withIndexRebuildingProgress to avoid actual rebuild
   const originalWithProgress = mockIndexerOptions.api.withIndexRebuildingProgress;
   mockIndexerOptions.api.withIndexRebuildingProgress = (task) => {
-    // Check the flag is set synchronously
+    // Run the task immediately (synchronously) to check the flag
+    task(() => {}, { isCancellationRequested: false });
+    // Check the flag is set after the task runs
     if (observer._rebuildInProgress === true) {
-      console.log('✓ rebuild() sets _rebuildInProgress flag');
+      console.log('✓ _rebuildWithProgress sets _rebuildInProgress flag');
     } else {
-      console.log('✗ rebuild() did not set _rebuildInProgress flag');
+      console.log('✗ _rebuildWithProgress did not set _rebuildInProgress flag');
       process.exit(1);
     }
     return Promise.resolve();
@@ -272,16 +274,23 @@ try {
   // Test that pending rebuild is triggered after rebuild completes
   observer._rebuildInProgress = true;
   observer._pendingRebuildAfterCurrent = true;
-  // Simulate rebuild completion
-  indexer._inProgress = false;
-  // Manually trigger the finally block logic
-  if (indexer.observer) {
-    indexer.observer._rebuildInProgress = false;
-    if (indexer.observer._pendingRebuildAfterCurrent) {
-      indexer.observer._pendingRebuildAfterCurrent = false;
-      // In real code, this would call rebuildIndex
-      console.log('✓ Pending rebuild flag is cleared after rebuild completion');
+  // Stub rebuildIndex to track if it's called
+  let rebuildIndexCalled = false;
+  const originalRebuildIndex = observer.rebuildIndex.bind(observer);
+  observer.rebuildIndex = (options) => {
+    rebuildIndexCalled = true;
+    if (options && options.delayed === true) {
+      console.log('✓ rebuildIndex called with { delayed: true }');
     }
+  };
+  // Simulate rebuild completion by calling _triggerPendingRebuild
+  observer._rebuildInProgress = false;
+  observer._triggerPendingRebuild();
+  if (rebuildIndexCalled) {
+    console.log('✓ Pending rebuild triggers rebuildIndex with { delayed: true }');
+  } else {
+    console.log('✗ Pending rebuild did not trigger rebuildIndex');
+    process.exit(1);
   }
   if (observer._pendingRebuildAfterCurrent === false) {
     console.log('✓ Pending rebuild flag is cleared');
