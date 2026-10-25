@@ -40,6 +40,33 @@ export default class ProjectPool {
     return observer;
   }
 
+  // Optional callback to get project-specific settings
+  // This allows the extension to provide per-project configuration
+  setProjectSettingsCallback(callback) {
+    this.options.getProjectSettings = callback;
+    // Reconcile watcher state for all existing observers
+    // This ensures observers created while global autoRebuild was false
+    // will install watchers if project-specific autoRebuild is now enabled
+    this._observers.forEach((observer) => {
+      const autoRebuild = observer.getSetting('autoRebuild');
+      const hasDirWatchers = observer.dirWatchSubscriptions.length > 0;
+      const hasConfigWatcher = observer.subscriptions.length > 0;
+      const hasWatchers = hasDirWatchers || hasConfigWatcher;
+      if (autoRebuild && !hasWatchers) {
+        observer.setupFSWatchers();
+      } else if (!autoRebuild && hasWatchers) {
+        disposeSubscriptions(observer.subscriptions);
+        observer.subscriptions = [];
+        disposeSubscriptions(observer.dirWatchSubscriptions);
+        observer.dirWatchSubscriptions = [];
+        if (observer._updateDirWatchersTimeout) {
+          clearTimeout(observer._updateDirWatchersTimeout);
+          observer._updateDirWatchersTimeout = undefined;
+        }
+      }
+    });
+  }
+
   async switch(projectDir) {
     this._activeProjectDir = projectDir;
     console.info('Switching project to', projectDir);

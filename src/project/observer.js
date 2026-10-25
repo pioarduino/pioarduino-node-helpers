@@ -16,6 +16,7 @@ import path from 'path';
 
 export default class ProjectObserver {
   static WATCH_DIRS_UPDATE_DELAY = 10000; // 10 seconds
+  static LIB_DIRS_CHANGE_DELAY = 100;
 
   constructor(projectDir, options) {
     this.projectDir = projectDir;
@@ -33,8 +34,14 @@ export default class ProjectObserver {
       this.options.intelliSenseBackend,
     );
     this._updateDirWatchersTimeout = undefined;
+    this._libDirsChangeTimeout = undefined;
+    this._libDirsChangeSnapshot = undefined;
     this._selectedEnv = undefined;
     this._apiConfigChangedTimeout = undefined;
+    this._rebuildInProgress = false;
+    this._libDirs = [];
+    this._libDirsSnapshotBeforeRebuild = new Map();
+    this._pendingRebuildAfterCurrent = false;
 
     if (this.getSetting('autoRebuild')) {
       this.setupFSWatchers();
@@ -46,6 +53,9 @@ export default class ProjectObserver {
     disposeSubscriptions(this.subscriptions);
     if (this._updateDirWatchersTimeout) {
       clearTimeout(this._updateDirWatchersTimeout);
+    }
+    if (this._libDirsChangeTimeout) {
+      clearTimeout(this._libDirsChangeTimeout);
     }
     if (this._indexer) {
       this._indexer.dispose();
@@ -63,6 +73,14 @@ export default class ProjectObserver {
   }
 
   getSetting(name) {
+    // First check if project-specific settings are provided
+    if (this.options.getProjectSettings) {
+      const projectSettings = this.options.getProjectSettings(this.projectDir);
+      if (projectSettings && name in projectSettings) {
+        return projectSettings[name];
+      }
+    }
+    // Fall back to global settings
     return (this.options.settings || {})[name];
   }
 
@@ -156,7 +174,110 @@ export default class ProjectObserver {
   }
 
   onDidChangeLibDirs() {
+    if (this._libDirsChangeTimeout) {
+      clearTimeout(this._libDirsChangeTimeout);
+    } else {
+      // Keep the comparison baseline from the start of the burst so events
+      // arriving during a rebuild retain their existing change detection.
+      this._libDirsChangeSnapshot = this._libDirsSnapshotBeforeRebuild;
+    }
+    this._libDirsChangeTimeout = setTimeout(() => {
+      this._libDirsChangeTimeout = undefined;
+      const snapshot = this._libDirsChangeSnapshot;
+      this._libDirsChangeSnapshot = undefined;
+      this._processLibDirsChange(snapshot);
+    }, ProjectObserver.LIB_DIRS_CHANGE_DELAY);
+  }
+
+  _processLibDirsChange(snapshot) {
+    // Ignore library directory changes that occur during a rebuild
+    // to prevent the rebuild from triggering itself (issue #105)
+    // Queue a follow-up rebuild only when tracked library files have changed
+    if (this._rebuildInProgress) {
+      if (
+        !this._pendingRebuildAfterCurrent &&
+        this._libDirsChangedSinceBeforeRebuild(snapshot)
+      ) {
+        this._pendingRebuildAfterCurrent = true;
+      }
+      return;
+    }
+    // Suppress rebuild-originated notifications delivered after rebuild completion
+    // if library directory contents have not changed since the post-rebuild snapshot
+    if (!this._libDirsChangedSinceBeforeRebuild(snapshot)) {
+      return;
+    }
+    this._captureLibDirsSnapshot();
     this.rebuildIndex({ delayed: true });
+  }
+
+  _triggerPendingRebuild() {
+    const libDirsChanged =
+      this._pendingRebuildAfterCurrent && this._libDirsChangedSinceBeforeRebuild();
+    this._pendingRebuildAfterCurrent = false;
+    // Refresh after every rebuild so later watcher notifications for rebuild
+    // output are compared against the resulting filesystem state.
+    const snapshot = this._captureLibDirsSnapshot();
+    // A watcher event received during the rebuild may still be waiting for its
+    // debounce timer. Compare it against the post-rebuild state when it lands.
+    if (this._libDirsChangeTimeout) {
+      this._libDirsChangeSnapshot = snapshot;
+    }
+    if (libDirsChanged) {
+      this.rebuildIndex({ delayed: true });
+    }
+  }
+
+  _captureLibDirsSnapshot() {
+    this._libDirsSnapshotBeforeRebuild = this._readLibDirsSnapshot();
+    return this._libDirsSnapshotBeforeRebuild;
+  }
+
+  _readLibDirsSnapshot() {
+    const fs = require('fs');
+    const snapshot = new Map();
+    const addFiles = (dir) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (err) {
+        return;
+      }
+      entries.forEach((entry) => {
+        const filePath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          addFiles(filePath);
+        } else if (entry.isFile()) {
+          try {
+            const stats = fs.lstatSync(filePath);
+            snapshot.set(
+              path.resolve(filePath),
+              `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`,
+            );
+          } catch (err) {
+            // Ignore files removed while taking the snapshot
+          }
+        }
+        // Do not follow symlinks: dependency links can be rewritten by a
+        // rebuild, and following them can traverse outside the watched tree.
+      });
+    };
+
+    this._libDirs.forEach(addFiles);
+    return snapshot;
+  }
+
+  _libDirsChangedSinceBeforeRebuild(before = this._libDirsSnapshotBeforeRebuild) {
+    const current = this._readLibDirsSnapshot();
+    if (current.size !== before.size) {
+      return true;
+    }
+    for (const [filePath, signature] of before) {
+      if (current.get(filePath) !== signature) {
+        return true;
+      }
+    }
+    return false;
   }
 
   setupFSWatchers() {
@@ -185,7 +306,9 @@ export default class ProjectObserver {
   async updateDirWatchers() {
     disposeSubscriptions(this.dirWatchSubscriptions);
     try {
-      (await this.fetchLibDirs()).forEach((dir) => {
+      this._libDirs = await this.fetchLibDirs();
+      this._captureLibDirsSnapshot();
+      this._libDirs.forEach((dir) => {
         const watcher = this.options.api.createDirSystemWatcher(dir);
         this.dirWatchSubscriptions.push(
           watcher,
