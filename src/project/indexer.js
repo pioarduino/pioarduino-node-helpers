@@ -59,6 +59,10 @@ export default class ProjectIndexer {
           } minutes.`;
         this.options.api.onDidNotifyError(msg, new Error(msg));
       }
+      // Clear the flag when flood limit rejects the request
+      if (this.observer) {
+        this.observer._rebuildInProgress = false;
+      }
       return;
     }
 
@@ -82,6 +86,12 @@ export default class ProjectIndexer {
       withProgress = () => {};
     }
     this._inProgress = true;
+    // Set the flag when rebuild work actually starts
+    if (this.observer) {
+      this.observer._rebuildInProgress = true;
+      // Capture file state before rebuilding so in-progress edits can be detected.
+      this.observer._captureLibDirsSnapshot();
+    }
     if (this.options.api.logOutputChannel) {
       this.options.api.logOutputChannel.clear();
     }
@@ -141,6 +151,12 @@ export default class ProjectIndexer {
       }
     } finally {
       this._inProgress = false;
+      // Reset the rebuild-in-progress flag in the observer
+      if (this.observer) {
+        this.observer._rebuildInProgress = false;
+        // Trigger pending rebuild if user changes arrived during the rebuild
+        this.observer._triggerPendingRebuild();
+      }
     }
   }
 }
